@@ -174,7 +174,7 @@ async function onPaid(env, msg) {
   if (msg.from.id !== OWNER_ID) await tg(env, "sendMessage", { chat_id: OWNER_ID, text: `💛 Yangi qo'llab-quvvatlash: ${name}${msg.from.username ? ` (@${msg.from.username})` : ""}, ${p.total_amount} ⭐${anon ? " · yashirin" : ""}\nUning jami: ${sum.s} ⭐` });
   await tg(env, "sendMessage", { chat_id: msg.chat.id, text: `Katta rahmat, ${msg.from?.first_name || "do'stim"}! ${p.total_amount} ⭐ qabul qilindi 💛\n\nJami qo'llab-quvvatlovingiz: ${sum.s} ⭐.${anon ? " Ismingiz reytingda ko'rinmaydi." : " Endi guruh reytinglarida ismingiz yonida ⭐ turadi."}` });
 }
-const ASK_DAYS = 5;
+const ASK_DAYS = 3;
 const ASK_TEXT = "🙌 Sezgir bilan 5 kun birga bo‘lganingiz uchun rahmat!\n\nSezgir — bir kishi tomonidan ishlab chiqilgan, bepul va reklamasiz o‘yin. Uni har kuni rivojlantirish, yangi testlar qo‘shish va server xarajatlarini qoplash uchun sizning qo‘llab-quvvatlashingiz katta yordam beradi.\n\nAgar o‘yin sizga yoqayotgan bo‘lsa, uni bir necha ⭐ bilan qo‘llab-quvvatlashingiz mumkin. Har bir yulduz Sezgir’ning yanada rivojlanishiga hissa qo‘shadi.\n\nSezgir muallifi — @doniyorjon_k. O‘yin sizga yoqqan bo‘lsa, unga bildirgan iliq fikringiz yoki oddiygina rahmatingiz ham muallif uchun katta quvonch!\n\nSezgir bilan qolayotganingiz uchun rahmat! ❤️";
 async function maybeAskSupport(env, client) { // once per person, after their 5th day of play, unless they already gave Stars
   const u = await env.DB.prepare("SELECT chat_id, client FROM tg_users WHERE client = ? AND active = 1 AND asked = 0").bind(client).first(); if (!u) return;

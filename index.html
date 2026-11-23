@@ -423,7 +423,18 @@ const store = {
   set(k, v) { try { localStorage.setItem("sezgir:" + k, JSON.stringify(v)); } catch {} }
 };
 function clientId() { let id = store.get("client", ""); if (!/^[a-z0-9]{16,40}$/.test(id)) { id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(36).padStart(2, "0")).join("").slice(0, 24); store.set("client", id); } return id; }
-async function api(path, body) { if (!API) return null; try { const r = await fetch(API + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}); return r.ok ? await r.json() : null; } catch { return null; } }
+async function api(path, body, keepalive) { if (!API) return null; try { const r = await fetch(API + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive: !!keepalive } : {}); return r.ok ? await r.json() : null; } catch { return null; } }
+// send today's play; keepalive lets it finish even if the Mini App is closed right away, and a failed send is retried
+let submitting = null;
+function submitPlay(rec) { if (rec.sent) return Promise.resolve(null); if (submitting) return submitting;
+  submitting = (async () => { const T = window.Telegram && window.Telegram.WebApp;
+    for (let i = 0; i < 4; i++) { if (i) await new Promise(ok => setTimeout(ok, [0, 1500, 4000, 9000][i]));
+      const st = await api("/submit", { date: rec.date, client: clientId(), scores: rec.results.map(r => r.score), initData: T && T.initData || undefined }, true);
+      if (st) { if (/^[a-z0-9]{16,40}$/.test(st.client || "")) store.set("client", st.client); const h = store.get("history", {}); if (h[rec.date]) { h[rec.date].sent = true; store.set("history", h); } rec.sent = true; return st; } }
+    return null; })().finally(() => { submitting = null; });
+  return submitting; }
+function resendPending() { if (!API) return; const r = store.get("history", {})[ymd()]; if (r && !r.sent && !r.late && r.date === today) submitPlay(r); }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") resendPending(); });
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 1800); }
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
@@ -790,7 +801,7 @@ function tgText(rec, challenge) { return challenge ? "Bugungi Sezgir'ni o'ynadim
 const WEEKDAYS = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"];
 async function globalBlock(box, rec) {
   let st;
-  if (!rec.sent) { const T = window.Telegram && window.Telegram.WebApp; st = await api("/submit", { date: rec.date, client: clientId(), scores: rec.results.map(r => r.score), initData: T && T.initData || undefined }); if (st && /^[a-z0-9]{16,40}$/.test(st.client || "")) store.set("client", st.client); if (st) { const h = store.get("history", {}); if (h[rec.date]) { h[rec.date].sent = true; store.set("history", h); } } }
+  if (!rec.sent) st = await submitPlay(rec);
   else st = await api(`/stats?date=${rec.date}&total=${rec.total}`);
   if (!st || !st.players) { box.remove(); return; }
   const mine = Math.min(Math.floor(rec.total / 10), 9), max = Math.max(...st.hist, 1);
@@ -1001,6 +1012,7 @@ readChallenge();
     if (p && Array.isArray(p.scores) && p.scores.length === TESTS.length && !store.get("history", {})[today]) { const params = dailyParams(today);
       const rec = { date: today, no: todayNo, total: p.total, results: TESTS.map((t, i) => ({ id: t.id, score: p.scores[i], human: "Boshqa qurilmada o'ynalgan.", v: params[i].v })), late: false, sent: true };
       const h = store.get("history", {}); h[today] = rec; store.set("history", h); } }
+  resendPending(); // a play whose send failed earlier (bad network, app closed too fast) goes out now
   if (DUEL_ID && API) duelPage(); else if (OPEN_SUPPORT && API && BOT) supportPage(home); else home();
 })();
 })();

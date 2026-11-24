@@ -404,6 +404,22 @@ async function announcePlay(env, client, date, total) { // "Aziz o'ynadi" in eac
 // one-off news line for the 09:00 messages, keyed by day (HTML; bold parts in <b>)
 const NEWS = { "2026-11-21": "🆕 <b>Yangi test: Ketmon!</b> Doira o'rniga endi burchak sezgisi bor: burchak 1,5 soniya ko'rinadi, keyin uni xotiradan yasaysiz. <b>Kim aniqroq topar ekan?</b>" };
 const newsOf = day => NEWS[day] || "";
+// One-off group announcement (owner-approved). Sent once by the hourly cron after `at`, only to groups whose title matches.
+const PROMO = {
+  key: "promo:games-2026-11", at: Date.parse("2026-11-24T18:00:00Z"), // owner chose "send now" (23:2x Tashkent)
+  match: /синфдош|sinfdosh/i,
+  text: "🎮 <b>Sezgirda yangi o'yinlar!</b>\nKunlik testdan tashqari endi 2 ta o'yin bor:\n🏎 <b>Chaqmoq</b>: 3D mashina poygasi. 5 ta botni quvib o'ting, nitroni bosing va 3 aylanada birinchi bo'ling.\n🎯 <b>Pistirma</b>: tungi otishma, botlarga qarshi.\nTelefonda ham, kompyuterda ham ishlaydi. Kim birinchi bo'lib Chaqmoqni \"Qiyin\" darajada yutar ekan? 😉",
+  buttons: [[{ text: "🏎 Chaqmoq", style: "success", url: `https://t.me/${BOT_USER}?startapp=chaqmoq` }, { text: "🎯 Pistirma", style: "primary", url: `https://t.me/${BOT_USER}?startapp=pistirma` }]],
+};
+async function sendPromo(env) {
+  if (Date.now() < PROMO.at) return;
+  if (await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(PROMO.key).first()) return;
+  await env.DB.prepare("INSERT INTO meta (k, v) VALUES (?, 1) ON CONFLICT(k) DO NOTHING").bind(PROMO.key).run(); // mark first: never send twice
+  const { results } = await env.DB.prepare("SELECT chat_id, title FROM tg_groups WHERE active = 1").all();
+  for (const g of results.filter((g) => PROMO.match.test(g.title || "")))
+    await tg(env, "sendMessage", { chat_id: g.chat_id, text: PROMO.text, parse_mode: "HTML", reply_markup: { inline_keyboard: PROMO.buttons } }).catch(() => {});
+}
+
 async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note in each group, with yesterday's winner
   const day = tzDay(), yday = shiftDay(day, -1);
   const groups = await env.DB.prepare("SELECT chat_id FROM tg_groups WHERE active = 1").all();
@@ -742,6 +758,7 @@ export default {
         else if (upd?.pre_checkout_query) { const q = upd.pre_checkout_query; await tg(env, "answerPreCheckoutQuery", { pre_checkout_query_id: q.id, ok: q.currency === "XTR" && /^don:[01]$/.test(q.invoice_payload), error_message: "To'lovni qabul qilib bo'lmadi, qayta urinib ko'ring." }); }
         return new Response("ok");
       }
+      if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
       if (url.pathname === "/tg/setup" && req.method === "GET") {
         if (!env.TG_BOT_TOKEN || !env.TG_WEBHOOK_SECRET || url.searchParams.get("key") !== env.TG_WEBHOOK_SECRET) return json({ error: "forbidden" }, 403, h);
         return json(await tgSetup(env, url.origin), 200, h);
@@ -823,7 +840,7 @@ export default {
   },
   async scheduled(event, env, ctx) { // hourly: duels; 04:00 UTC = 09:00 Tashkent (morning), 14:00 UTC = 19:00 (evening), 16:00 UTC = 21:00 (group boards)
     if (!env.TG_BOT_TOKEN) return;
-    if (event.cron === "0 * * * *") ctx.waitUntil(duelSweep(env).catch(() => {}).then(() => duelRemind(env)).catch(() => {}).then(() => fbRemind(env)).catch(() => {})); // hourly: duel expiry + reminders
+    if (event.cron === "0 * * * *") ctx.waitUntil(duelSweep(env).catch(() => {}).then(() => duelRemind(env)).catch(() => {}).then(() => fbRemind(env)).catch(() => {}).then(() => sendPromo(env)).catch(() => {})); // hourly: duel expiry + reminders
     else if (event.cron === "0 16 * * *") ctx.waitUntil(Promise.all([postBoards(env), watchMisses(env).catch(() => {})]));
     else if (event.cron === "0 4 * * *") ctx.waitUntil(Promise.all([remind(env, false), morningGroups(env)]));
     else if (event.cron === "0 14 * * *") ctx.waitUntil(Promise.all([remind(env, true), duelNudge(env).catch(() => {})]));

@@ -406,7 +406,7 @@ const NEWS = { "2026-11-21": "🆕 <b>Yangi test: Ketmon!</b> Doira o'rniga endi
 const newsOf = day => NEWS[day] || "";
 // One-off group announcement (owner-approved). Sent once by the hourly cron after `at`, only to groups whose title matches.
 const PROMO = {
-  key: "promo:games-2026-11", at: Date.parse("2026-11-25T08:00:00Z"), // 13:00 Tashkent
+  key: "promo:games-2026-11", at: Date.parse("2026-11-24T18:00:00Z"), // owner chose "send now" (23:2x Tashkent)
   match: /синфдош|sinfdosh/i,
   text: "🎮 <b>Sezgirda yangi o'yinlar!</b>\nKunlik testdan tashqari endi 2 ta o'yin bor:\n🏎 <b>Chaqmoq</b>: 3D mashina poygasi. 5 ta botni quvib o'ting, nitroni bosing va 3 aylanada birinchi bo'ling.\n🎯 <b>Pistirma</b>: tungi otishma, botlarga qarshi.\nTelefonda ham, kompyuterda ham ishlaydi. Kim birinchi bo'lib Chaqmoqni \"Qiyin\" darajada yutar ekan? 😉",
   buttons: [[{ text: "🏎 Chaqmoq", style: "success", url: `https://t.me/${BOT_USER}?startapp=chaqmoq` }, { text: "🎯 Pistirma", style: "primary", url: `https://t.me/${BOT_USER}?startapp=pistirma` }]],
@@ -758,6 +758,7 @@ export default {
         else if (upd?.pre_checkout_query) { const q = upd.pre_checkout_query; await tg(env, "answerPreCheckoutQuery", { pre_checkout_query_id: q.id, ok: q.currency === "XTR" && /^don:[01]$/.test(q.invoice_payload), error_message: "To'lovni qabul qilib bo'lmadi, qayta urinib ko'ring." }); }
         return new Response("ok");
       }
+      if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
       if (url.pathname === "/tg/setup" && req.method === "GET") {
         if (!env.TG_BOT_TOKEN || !env.TG_WEBHOOK_SECRET || url.searchParams.get("key") !== env.TG_WEBHOOK_SECRET) return json({ error: "forbidden" }, 403, h);
         return json(await tgSetup(env, url.origin), 200, h);

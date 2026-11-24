@@ -70,6 +70,13 @@ svg.chart .hit:hover + .bar, svg.chart .sel { opacity: .75; }
 .back { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); padding: 6px 13px 6px 10px; border-radius: 999px; color: var(--ink); font: 500 14px var(--font); cursor: pointer; text-decoration: none; white-space: nowrap; }
 a.row, .row.link { color: inherit; text-decoration: none; cursor: pointer; }
 a.row:hover .nm, .row.link:hover .nm { color: var(--accent); }
+.gsw { --n: 3; position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); border: 1px solid var(--line); border-radius: 12px; padding: 3px; background: var(--bg); margin: -4px 0 2px; }
+.gsw i { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--n)); border-radius: 9px; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.18); transition: transform .32s cubic-bezier(.3,.8,.3,1); }
+.gsw a { position: relative; text-align: center; padding: 8px 6px; font: 500 14px var(--font); color: var(--muted); text-decoration: none; border-radius: 9px; transition: color .2s; }
+.gsw a.on { color: var(--ink); }
+@keyframes inR { from { opacity: .3; transform: translateX(28px); } } @keyframes inL { from { opacity: .3; transform: translateX(-28px); } }
+#app.in-r > :not(header):not(.gsw) { animation: inR .3s ease-out; } #app.in-l > :not(header):not(.gsw) { animation: inL .3s ease-out; }
+@media (prefers-reduced-motion: reduce) { .gsw i { transition: none; } #app.in-r > *, #app.in-l > * { animation: none !important; } }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .tab { font: 500 13px var(--font); border: 1px solid var(--line); background: var(--bg); color: var(--muted); padding: 6px 12px; border-radius: 999px; cursor: pointer; text-decoration: none; }
 .tab.on { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); }
@@ -181,8 +188,19 @@ function duelRow(x) { const r = el("div", "row"); const nm = el("div", "nm"); co
 
 // ---------- other games (Chaqmoq, Pistirma) ----------
 const GAME_INFO = { chaqmoq: { name: "🏎 Chaqmoq", low: true, fin: "marraga yetdi", best: "eng tez", fmt: v => `${Math.floor(v / 60)}:${(v % 60).toFixed(2).padStart(5, "0")}` }, pistirma: { name: "🎯 Pistirma", low: false, fin: "o'yinni tugatdi", best: "eng ko'p ochko", fmt: v => String(Math.round(v)) } };
-function gameSwitch(cur) { const t = el("div", "tabs"); t.style.cssText = "margin:-4px 0 2px";
-  [["", "Sezgir"], ...Object.entries(GAME_INFO).map(([id, I]) => ["game/" + id, I.name.replace(/^\S+ /, "")])].forEach(([h, n]) => { const a = el("a", "tab" + (h === cur ? " on" : ""), n); a.href = "#" + h; t.append(a); }); return t; }
+// game slider (Sezgir | Chaqmoq | Pistirma): a sliding thumb like the public stats page; swipe left/right on the page also switches
+const SW = () => [["", "Sezgir"], ...Object.entries(GAME_INFO).map(([id, I]) => ["game/" + id, I.name.replace(/^\S+ /, "")])];
+let swLast = 0, swDir = 0;
+function gameSwitch(cur) { const list = SW(), idx = Math.max(0, list.findIndex(([h]) => h === cur)), box = el("div", "gsw"), th = el("i");
+  box.style.setProperty("--n", list.length); th.style.transform = `translateX(${swLast * 100}%)`; box.append(th);
+  list.forEach(([h, n], k) => { const a = el("a", k === idx ? "on" : null, n); a.href = "#" + h; a.onclick = e => { e.preventDefault(); goGame(k); }; box.append(a); });
+  requestAnimationFrame(() => requestAnimationFrame(() => { th.style.transform = `translateX(${idx * 100}%)`; }));
+  swDir = idx === swLast ? 0 : idx > swLast ? 1 : -1; swLast = idx; return box; }
+function goGame(k) { const list = SW(); if (k < 0 || k >= list.length) return; const h = list[k][0]; if (("#" + h) === (location.hash || "#") || (h === "" && !location.hash)) return; location.hash = h; }
+function slideIn() { if (!swDir) return; $app.classList.remove("in-l", "in-r"); void $app.offsetWidth; $app.classList.add(swDir > 0 ? "in-r" : "in-l"); }
+(() => { let x0 = null, y0 = 0; document.addEventListener("touchstart", e => { const t = e.touches[0]; x0 = e.touches.length === 1 && !e.target.closest("input,select,.scroll,.chart") ? t.clientX : null; y0 = t.clientY; }, { passive: true });
+  document.addEventListener("touchend", e => { if (x0 == null || !$app.querySelector(".gsw")) return; const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) goGame(swLast + (dx < 0 ? 1 : -1)); }, { passive: true }); })();
 function gameSum(g, date) { const rows = date ? g.rows.filter(x => x.date === date) : g.rows, bs = rows.map(x => x.best).filter(v => v != null), I = GAME_INFO[g.id];
   return { players: new Set(rows.map(x => x.client)).size, starts: rows.reduce((a, x) => a + x.starts, 0), finishes: rows.reduce((a, x) => a + x.finishes, 0), wins: rows.reduce((a, x) => a + x.wins, 0), best: bs.length ? (I.low ? Math.min(...bs) : Math.max(...bs)) : null }; }
 function gamePage(id) {
@@ -318,7 +336,7 @@ function ratingsPage() { const l = el("div", "list"); D.feedback.slice().sort((a
     card("Taqsimot", "foizda", hbars(dist)), card("Barcha baholar", null, l)); }
 
 function route() { if (!D) return; const h = decodeURIComponent(location.hash.slice(1)); window.scrollTo(0, 0);
-  if (h === "players") playersPage(); else if (h.startsWith("p/")) playerPage(h.slice(2)); else if (h.startsWith("d/")) dayPage(h.slice(2)); else if (h === "groups") groupsPage(); else if (h.startsWith("g/")) groupPage(h.slice(2)); else if (h === "duels") duelsPage(); else if (h === "ratings") ratingsPage(); else if (h.startsWith("game/")) gamePage(h.slice(5)); else home(); }
+  if (h === "players") playersPage(); else if (h.startsWith("p/")) playerPage(h.slice(2)); else if (h.startsWith("d/")) dayPage(h.slice(2)); else if (h === "groups") groupsPage(); else if (h.startsWith("g/")) groupPage(h.slice(2)); else if (h === "duels") duelsPage(); else if (h === "ratings") ratingsPage(); else if (h.startsWith("game/")) gamePage(h.slice(5)); else home(); if ($app.querySelector(".gsw")) slideIn(); }
 window.addEventListener("hashchange", route);
 
 async function load() {

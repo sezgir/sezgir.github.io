@@ -499,6 +499,10 @@ async function bdayTap(env, q) {
   const pre = `${BDAY.key}:${m.chat.id}:${m.message_id}:` /* per message, so each owner preview starts fresh */, name = [u.first_name, u.last_name].filter(Boolean).join(" ").slice(0, 40) || "Sinfdosh";
   const test = m.chat.id === OWNER_ID && u.id === OWNER_ID; // owner's private preview: 1st tap lights a candle, 2nd tap blows them out
   const hero = (u.username || "").toLowerCase() === BDAY.user || (test && !!await env.DB.prepare("SELECT 1 FROM snap WHERE k = ?").bind(pre + u.id).first());
+  if (hero && !test) { // the birthday person can blow only once all candles are lit
+    const c = (await env.DB.prepare("SELECT COUNT(*) AS c FROM snap WHERE k LIKE ? AND k <> ?").bind(pre + "%", pre + "thanks").first()).c;
+    if (c < BDAY.candles) return answerCb(env, q, `Hali ${BDAY.candles - c} ta sham yonmagan, sinfdoshlar tabriklashini kuting 😉`, true);
+  }
   const ins = await env.DB.prepare("INSERT OR IGNORE INTO snap (k, at, data) VALUES (?, ?, ?)").bind(pre + (hero ? "thanks" : u.id), Date.now(), JSON.stringify(name)).run();
   if (!ins.meta?.changes) return answerCb(env, q, hero ? "🌬 Shamlar allaqachon o'chgan. Tug'ilgan kuningiz muborak! 🎂" : "Siz allaqachon tabrikladingiz 🙂 Rahmat!");
   const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;

@@ -145,6 +145,8 @@ async function onMessage(env, msg) {
   if (cmd === "/start" && /^dg-?\d{1,20}$/.test(arg || "")) { const gid = Number(arg.slice(2)); await autoJoin(env, gid, msg.from); await env.DB.prepare("UPDATE tg_users SET active = 1 WHERE chat_id = ?").bind(chat).run(); return duelPicker(env, chat, chat, gid); }
   if (cmd === "/start" && arg && /^g-?\d{1,20}$/.test(arg)) return joinGroup(env, chat, name, u, Number(arg.slice(1)));
   if (cmd === "/start" && arg && /^v\d{1,5}(_\d{1,3}){5}(_[A-Za-z0-9_-]+)?$/.test(arg)) return openChallenge(env, chat, name, u, arg);
+  if (cmd === "/start" && OPEN_GAME[arg]) { const G = OPEN_GAME[arg]; // group promo link: a web_app button opens the game itself (private chat only)
+    return tg(env, "sendMessage", { chat_id: chat, text: G.text, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: G.btn, style: "success", web_app: { url: SITE + G.path } }]] } }); }
   if (cmd === "/start") {
     const siteClient = arg && CLIENT.test(arg) ? arg : null;
     const client = u?.client || siteClient || newClient();
@@ -447,6 +449,10 @@ async function announcePlay(env, client, date, total) { // "Aziz o'ynadi" in eac
 const NEWS = { "2026-11-21": "🆕 <b>Yangi test: Ketmon!</b> Doira o'rniga endi burchak sezgisi bor: burchak 1,5 soniya ko'rinadi, keyin uni xotiradan yasaysiz. <b>Kim aniqroq topar ekan?</b>" };
 const newsOf = day => NEWS[day] || "";
 // One-off group announcement (owner-approved). Sent once by the hourly cron after `at`, only to groups whose title matches.
+const OPEN_GAME = { // t.me/<bot>?start=chaqmoq: works even when the bot has no Main Mini App, unlike ?startapp=
+  chaqmoq: { path: "poyga/", btn: "🏎 Chaqmoqni ochish", text: "<b>🏎 Chaqmoq</b>: 3D mashina poygasi. Botlarni quvib o'ting!" },
+  pistirma: { path: "pistirma/", btn: "🎯 Pistirmani ochish", text: "<b>🎯 Pistirma</b>: tungi otishma, botlarga qarshi." },
+};
 const PROMO = {
   key: "promo:games-2026-11", at: Date.parse("2026-11-25T08:00:00Z"), // cron fallback 13:00 Tashkent; /promo/go sends right away
   match: /синфдош|sinfdosh/i,
@@ -801,6 +807,10 @@ export default {
         return new Response("ok");
       }
       if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env, true); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
+      if (url.pathname === "/tg/botinfo" && req.method === "GET") { // public facts only: does the bot have a Main Mini App, where does the menu button point
+        const me = await tg(env, "getMe", {}).catch(() => null), mb = await tg(env, "getChatMenuButton", {}).catch(() => null);
+        return json({ main_app: me?.result?.has_main_web_app ?? null, menu: mb?.result?.web_app?.url ?? mb?.result?.type ?? null }, 200, h);
+      }
       if (url.pathname === "/tg/setup" && req.method === "GET") {
         if (!env.TG_BOT_TOKEN || !env.TG_WEBHOOK_SECRET || url.searchParams.get("key") !== env.TG_WEBHOOK_SECRET) return json({ error: "forbidden" }, 403, h);
         return json(await tgSetup(env, url.origin), 200, h);

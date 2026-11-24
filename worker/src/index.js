@@ -471,7 +471,7 @@ async function sendPromo(env, now = false) {
 // One-off birthday greeting (owner-approved): sent once after `at` to groups matching PROMO.match. Each classmate's tap lights
 // one candle (🕯 -> 🔥) and adds their name; the birthday person's tap blows them all out (💨) with a "thank you all" line.
 const BDAY = {
-  key: "bday:abdugapirov22-2026-11-25", at: Date.parse("2026-11-25T04:00:00Z"), user: "abdugapirov22", candles: 10, // 09:00 Tashkent
+  key: "bday:abdugapirov22-2026-11-25", at: Date.parse("2026-11-25T04:00:00Z"), user: "abdugapirov22", uid: 634244640, candles: 10, // 09:00 Tashkent
   head: "🎂 <b>Bugun tug'ilgan kun!</b>\nSinfdoshimiz @abdugapirov22, tug‘ilgan kuning muborak!\n\nSenga mustahkam sog‘lik, oilaviy baxt, omad va ishlaringda rivoj tilaymiz. Barcha ezgu niyatlaring amalga oshsin, hayotda doimo o‘z o‘rningni topib, yuksak marralarni zabt et. Yaqinlaring ardog‘ida, do‘stlaring davrasida doimo sog‘-omon yur!\n\nBayraming muborak, sinfdosh! <b>Yeb-ichar qayerda?</b> 👀\n\nTugmani bosib tabrikla: har bir tabrik bitta sham yoqadi 🔥\nShamlarni esa tug'ilgan kun egasi o'zi puflab o'chiradi 🌬",
 };
 const bdayKb = { inline_keyboard: [[{ text: "🎉 Tabriklayman", style: "success", callback_data: "bd" }]] };
@@ -498,7 +498,7 @@ async function bdayTap(env, q) {
   if (!m) return answerCb(env, q, "🎉");
   const pre = `${BDAY.key}:${m.chat.id}:${m.message_id}:` /* per message, so each owner preview starts fresh */, name = [u.first_name, u.last_name].filter(Boolean).join(" ").slice(0, 40) || "Sinfdosh";
   const test = m.chat.id === OWNER_ID && u.id === OWNER_ID; // owner's private preview: 1st tap lights a candle, 2nd tap blows them out
-  const hero = (u.username || "").toLowerCase() === BDAY.user || (test && !!await env.DB.prepare("SELECT 1 FROM snap WHERE k = ?").bind(pre + u.id).first());
+  const hero = (u.username || "").toLowerCase() === BDAY.user || u.id === BDAY.uid || (test && !!await env.DB.prepare("SELECT 1 FROM snap WHERE k = ?").bind(pre + u.id).first());
   if (hero && !test) { // the birthday person can blow only once all candles are lit
     const c = (await env.DB.prepare("SELECT COUNT(*) AS c FROM snap WHERE k LIKE ? AND k <> ?").bind(pre + "%", pre + "thanks").first()).c;
     if (c < BDAY.candles) return answerCb(env, q, `Hali ${BDAY.candles - c} ta sham yonmagan, sinfdoshlar tabriklashini kuting 😉`, true);
@@ -513,6 +513,10 @@ async function bdayTap(env, q) {
   await tg(env, "editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: bdayText(names, th ? JSON.parse(th.data) : ""), parse_mode: "HTML", reply_markup: bdayKb }).catch(() => {});
   if (!hero && !th && n === BDAY.candles && !test) // 10th candle: a reply that @-mentions the birthday person, so Telegram notifies them (edits don't)
     await tg(env, "sendMessage", { chat_id: m.chat.id, text: `🔥 @${BDAY.user}, 10 ta sham yondi! Endi tabrik xabaridagi tugmani bosib, ularni puflab o'chir 🌬`, reply_parameters: { message_id: m.message_id, allow_sending_without_reply: true } }).catch(() => {});
+  if (!hero && !th && n === BDAY.candles && !test) { // ...and a private note with a button to the post (they have started the bot)
+    const link = String(m.chat.id).startsWith("-100") ? `https://t.me/c/${String(m.chat.id).slice(4)}/${m.message_id}` : null;
+    await tg(env, "sendMessage", { chat_id: BDAY.uid, text: `🎂 Sinfdoshlaringiz tug'ilgan kun tabrigida 10 ta sham yoqishdi! 🔥\nEndi guruhdagi xabarda «🎉 Tabriklayman» tugmasini bosib, shamlarni puflab o'chiring 🌬`, ...(link ? { reply_markup: { inline_keyboard: [[{ text: "🌬 Shamlarni puflash", style: "success", url: link }]] } } : {}) }).catch(() => {});
+  }
 }
 
 async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note in each group, with yesterday's winner

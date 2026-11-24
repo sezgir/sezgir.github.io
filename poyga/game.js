@@ -1031,6 +1031,7 @@ function startRace() {
   Audio.init(); Audio.ctx && Audio.ctx.resume(); Music.stop();
   setupRace();
   state = 'count'; countT = 3.6; lastCount = 0; camInit = false; lastPos = 0;
+  window.gameStat && window.gameStat('chaqmoq', 'start');
   $('menu').classList.add('hide'); $('result').classList.add('hide'); $('pause').classList.add('hide');
   $('hud').classList.remove('hide'); if (isTouch) $('touch').classList.remove('hide');
   if (TG && TG.BackButton) { try { TG.BackButton.show(); } catch (e) {} }
@@ -1038,6 +1039,7 @@ function startRace() {
 function finishRace() {
   state = 'finish'; finishT = 0;
   const pos = standings().indexOf(player) + 1;
+  window.gameStat && window.gameStat('chaqmoq', 'finish', { win: pos === 1, val: +player.finishTime.toFixed(2) });
   haptic('ok'); Audio.beep(660, 0.12, 'triangle', 0.2); setTimeout(() => Audio.beep(990, 0.3, 'triangle', 0.2), 130);
   toast(pos === 1 ? "G'ALABA!" : 'MARRA!', 2);
   setTimeout(() => showResult(pos), 1900);

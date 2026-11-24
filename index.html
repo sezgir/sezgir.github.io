@@ -228,6 +228,8 @@ header .brand { grid-area: brand; } header .pulse { grid-area: pulse; } header .
 .seg-ctl { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; background: var(--bg); }
 .seg-ctl button { border: 0; background: none; color: var(--muted); font: 500 13px var(--font-body); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
 .seg-ctl button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.sp-games { display: flex; width: 100%; margin: 0 0 14px; } .sp-games button { flex: 1; }
+.sp-gamebox .sp-chart { margin-top: 18px; } .sp-gamebox h3 { margin-top: 18px; }
 .sp-chart { position: relative; }
 .sp-days { display: grid; gap: 3px; height: 140px; transition: opacity .2s; }
 .sp-days.loading, .sp-daybox.loading { opacity: .4; }
@@ -684,15 +686,43 @@ function hideTip(wrap) { const t = wrap.querySelector(".sp-tip"); if (t) t.hidde
 
 async function statsPage() {
   showStage(false); progress.hidden = true; setMeta(todayNo, today); clearInterval(spTimer);
-  const range = store.get("spRange", 14); let sel = today;
-  const c = el("section", "card stats-page"); c.append(backLink("Bosh sahifa", () => { clearInterval(spTimer); home(); }), el("div", "step", "Statistika"), el("h2", null, `${GAME} statistikasi`));
+  const range = store.get("spRange", 14); let sel = today; const h2t = el("h2", null, `${GAME} statistikasi`);
+  const c = el("section", "card stats-page"); c.append(backLink("Bosh sahifa", () => { clearInterval(spTimer); home(); }), el("div", "step", "Statistika"), h2t);
   const liveRow = el("div", "sp-live"); liveRow.append(el("i"), el("b", null, "–"), document.createTextNode(" kishi hozir saytda"));
-  const seg = el("div", "seg-ctl"); [7, 14, 30].forEach(n => { const b = el("button", n === range ? "on" : null, `${n} kun`); b.type = "button"; b.addEventListener("click", () => { store.set("spRange", n); seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); loadDays(n); }); seg.append(b); });
+  let curRange = range, game = "sezgir";
+  const seg = el("div", "seg-ctl"); [7, 14, 30].forEach(n => { const b = el("button", n === range ? "on" : null, `${n} kun`); b.type = "button"; b.addEventListener("click", () => { store.set("spRange", n); curRange = n; seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); if (game === "sezgir") loadDays(n); else loadGame(); }); seg.append(b); });
+  // game switch: the daily test (Sezgir) or one of the extra games
+  const gsw = el("div", "seg-ctl sp-games"); [["sezgir", GAME], ["chaqmoq", "Chaqmoq"], ["pistirma", "Pistirma"]].forEach(([id, name]) => { const b = el("button", id === game ? "on" : null, name); b.type = "button";
+    b.addEventListener("click", () => { game = id; h2t.textContent = `${name} statistikasi`; gsw.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); const sz = id === "sezgir"; [chartWrap, legend, dayBox, foot].forEach(x => x.hidden = !sz); liveRow.hidden = !sz; gameBox.hidden = sz; if (!sz) loadGame(); }); gsw.append(b); });
+  const gameBox = el("div", "sp-gamebox"); gameBox.hidden = true;
   const chartWrap = el("div", "sp-chart"); const days = el("div", "sp-days"); chartWrap.append(days);
   const legend = el("div", "sp-legend"); legend.innerHTML = '<span><i class="v"></i>tashriflar</span><span><i class="p"></i>o\'yinchilar</span><span class="hint">kunni bosib tanlang</span>';
   const dayBox = el("div", "sp-daybox"); const foot = el("p", "sp-foot");
   const head = el("div", "sp-head"); head.append(liveRow, seg);
-  c.append(head, chartWrap, legend, dayBox, foot); show(c); window.scrollTo(0, 0);
+  c.append(gsw, head, chartWrap, legend, dayBox, foot, gameBox); show(c); window.scrollTo(0, 0);
+  async function loadGame() {
+    const id = game; gameBox.classList.add("loading"); const all = await api(`/games?days=${curRange}`); gameBox.classList.remove("loading");
+    if (id !== game) return; const g = all && all[id];
+    if (!g) { gameBox.replaceChildren(el("p", "lead", "Ma'lumotni yuklab bo'lmadi.")); return; }
+    const td = g.days[g.days.length - 1], T = g.total || {}, race = id === "chaqmoq";
+    const fmtBest = v => v == null ? "–" : race ? `${Math.floor(v / 60)}:${(v % 60).toFixed(1).padStart(4, "0")}` : String(Math.round(v));
+    const tileRow = list => { const t = el("div", "sp-tiles"); list.forEach(([k, v]) => { const d = el("div"); const b = el("b"); if (typeof v === "number") countUp(b, v); else b.textContent = v; d.append(b, el("small", null, k)); t.append(d); }); return t; };
+    const cw = el("div", "sp-chart"); const dd = el("div", "sp-days"); cw.append(dd); dd.style.gridTemplateColumns = `repeat(${g.days.length}, minmax(0, 1fr))`;
+    const mx = Math.max(...g.days.map(d => Math.max(d.plays, d.players)), 1);
+    dd.replaceChildren(...g.days.map((d, i) => { const col = el("button", "sp-day" + (d.date === today ? " sel" : "")); col.type = "button";
+      const bars = el("div", "bars"); const v = el("i", "v"), p = el("i", "p"); bars.append(v, p);
+      requestAnimationFrame(() => { v.style.height = `${Math.max(d.plays ? 3 : 1, d.plays / mx * 100)}%`; p.style.height = `${Math.max(d.players ? 3 : 0, d.players / mx * 100)}%`; });
+      col.append(bars, el("small", null, (curRange <= 14 || i % 3 === 0 || d.date === today) ? String(+d.date.slice(8)) : ""));
+      const tip = () => showTip(cw, col, `<b>${prettyDate(d.date)}, ${weekday(d.date)}</b><br>${d.plays} o'yin · ${d.players} o'yinchi${d.wins ? ` · ${d.wins} g'alaba` : ""}${d.best != null ? ` · eng yaxshi ${fmtBest(d.best)}` : ""}`);
+      col.addEventListener("pointerenter", tip); col.addEventListener("focus", tip); col.addEventListener("click", tip); col.addEventListener("pointerleave", () => hideTip(cw)); col.addEventListener("blur", () => hideTip(cw));
+      return col; }));
+    const lg = el("div", "sp-legend"); lg.innerHTML = '<span><i class="v"></i>o\'yinlar</span><span><i class="p"></i>o\'yinchilar</span>';
+    gameBox.replaceChildren(
+      el("h3", null, "Bugun"), tileRow([["O'yinchilar", td.players], ["O'yinlar", td.plays], ["G'alabalar", td.wins], [race ? "Eng tez vaqt" : "Eng ko'p ochko", fmtBest(td.best)]]),
+      cw, lg,
+      el("h3", null, "Jami"), tileRow([["O'yinchilar", T.players || 0], ["O'yinlar", T.plays || 0], ["Oxirigacha", T.finishes || 0], [race ? "Rekord vaqt" : "Rekord ochko", fmtBest(T.best)]]),
+      el("p", "sp-foot", race ? "Rekord vaqt: 3 aylanani eng tez tugatgan natija (har qanday daraja)." : "Rekord ochko: bitta jangdagi eng yuqori ochko."));
+  }
 
   const refreshLive = async () => { if (!document.contains(c)) { clearInterval(spTimer); return; } const lv = await api("/live"); if (lv) { liveRow.querySelector("b").textContent = String(lv.online); paintPulse(lv); } };
   refreshLive(); spTimer = setInterval(refreshLive, 20000);

@@ -120,6 +120,7 @@ body.touch #pickTip { display:none !important; }
 .big small { color:var(--muted); font-size:12px; }
 .big .new { color:var(--amber); }
 </style>
+<script src="../games-stat.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -756,10 +757,10 @@ function hud() {
 let sel = store.get("map", 0), diff = store.get("diff", 1);
 function showMenu() { G.mode = "menu"; $("#hud").hidden = true; $("#end").hidden = true; $("#pause").hidden = true; $("#menu").hidden = false; startMatch(sel, 1, true); tgBack(false); }
 function pause(on) { if (on && G.mode === "play") { G.mode = "pause"; $("#pause").hidden = false; } else if (!on && G.mode === "pause") { G.mode = "play"; $("#pause").hidden = true; last = performance.now(); } }
-function begin() { audio(); store.set("map", sel); store.set("diff", diff); $("#menu").hidden = true; $("#end").hidden = true; $("#hud").hidden = false; startMatch(sel, diff, false); refreshWeapon(); tgBack(true); }
+function begin() { audio(); store.set("map", sel); store.set("diff", diff); window.gameStat && window.gameStat("pistirma", "start"); $("#menu").hidden = true; $("#end").hidden = true; $("#hud").hidden = false; startMatch(sel, diff, false); refreshWeapon(); tgBack(true); }
 function endMatch() {
   G.mode = "over"; $("#hud").hidden = true; const rows = G.fighters.slice().sort((a, b) => b.kills - a.kills || b.score - a.score); const place = rows.indexOf(G.me) + 1, me = G.me;
-  const bonus = me.kills === 0 ? 0 : place === 1 ? 300 : place === 2 ? 150 : place === 3 ? 50 : 0; const total = me.score + bonus; const key = "best:" + M.id + ":" + diff, prev = store.get(key, 0), isNew = total > prev; if (isNew) store.set(key, total);
+  const bonus = me.kills === 0 ? 0 : place === 1 ? 300 : place === 2 ? 150 : place === 3 ? 50 : 0; const total = me.score + bonus; const key = "best:" + M.id + ":" + diff, prev = store.get(key, 0), isNew = total > prev; if (isNew) store.set(key, total); window.gameStat && window.gameStat("pistirma", "finish", { win: place === 1, val: total });
   $("#eTitle").textContent = place === 1 ? "G'alaba! 1-o'rin" : `${place}-o'rin`;
   $("#eSub").textContent = `${M.name} · ${["Oson", "O'rtacha", "Qiyin"][diff]} · ${me.kills} ta yiqitish, ${me.deaths} marta yiqildingiz`;
   const big = $("#eBig"); big.innerHTML = ""; [[total, "Ochko" + (bonus ? ` (+${bonus} o'rin uchun)` : "")], [Math.max(prev, total), isNew && total > 0 ? "Yangi rekord!" : "Rekord"], [me.best, "Eng uzun seriya"]].forEach(([v, l], i) => { const d = document.createElement("div"); const b = document.createElement("b"); b.textContent = v; if (i === 1 && isNew && total > 0) b.className = "new"; const s = document.createElement("small"); s.textContent = l; d.append(b, s); big.append(d); });

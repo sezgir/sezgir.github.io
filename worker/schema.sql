@@ -96,3 +96,9 @@ CREATE TABLE IF NOT EXISTS feedback (
   chat_id INTEGER PRIMARY KEY, name TEXT, username TEXT, stars INTEGER, comment TEXT,
   asked INTEGER NOT NULL, rated INTEGER, commented INTEGER, wait INTEGER NOT NULL DEFAULT 0, nudged INTEGER NOT NULL DEFAULT 0
 );
+-- other games (Chaqmoq /poyga/, Pistirma /pistirma/): one row per game, Tashkent day and player (also created lazily by the worker)
+CREATE TABLE IF NOT EXISTS game_plays (
+  game TEXT NOT NULL, date TEXT NOT NULL, client TEXT NOT NULL,
+  starts INTEGER NOT NULL DEFAULT 0, finishes INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0,
+  best REAL, PRIMARY KEY (game, date, client)
+);

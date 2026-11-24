@@ -468,19 +468,19 @@ async function sendPromo(env, now = false) {
     await tg(env, "sendMessage", { chat_id: g.chat_id, text: PROMO.text, parse_mode: "HTML", reply_markup: { inline_keyboard: PROMO.buttons } }).catch(() => {});
 }
 
-// One-off birthday greeting (owner-approved): sent once after `at` to groups matching PROMO.match. Each tap on the button
-// blows out one candle and adds the tapper's name; when all candles are out the message gets a closing line.
+// One-off birthday greeting (owner-approved): sent once after `at` to groups matching PROMO.match. Each classmate's tap lights
+// one candle (🕯 -> 🔥) and adds their name; the birthday person's tap blows them all out (💨) with a "thank you all" line.
 const BDAY = {
   key: "bday:abdugapirov22-2026-11-25", at: Date.parse("2026-11-25T04:00:00Z"), user: "abdugapirov22", candles: 10, // 09:00 Tashkent
-  head: "🎂 <b>Bugun tug'ilgan kun!</b>\nAziz sinfdoshimiz @abdugapirov22, tug'ilgan kuning muborak! Sog'lik, omad va baxt doim yoningda bo'lsin. Maktabdagidek doim quvnoq bo'lib qol!\n\nPastdagi tugmani bosib, sen ham tabrikla 👇",
+  head: "🎂 <b>Bugun tug'ilgan kun!</b>\nAziz sinfdoshimiz @abdugapirov22, tug'ilgan kuning muborak! Sog'lik, omad va baxt doim yoningda bo'lsin. Maktabdagidek doim quvnoq bo'lib qol!\n\nTugmani bosib tabrikla: har bir tabrik bitta sham yoqadi 🔥\nShamlarni esa tug'ilgan kun egasi o'zi puflab o'chiradi 🌬",
 };
 const bdayKb = { inline_keyboard: [[{ text: "🎉 Tabriklayman", style: "success", callback_data: "bd" }]] };
-function bdayText(names, thanks = "") {
-  const out = Math.min(names.length, BDAY.candles), shown = names.slice(0, 30).map(esc).join(", "), more = names.length - 30;
-  let t = `${BDAY.head}\n\n${"💨".repeat(out)}${"🕯".repeat(BDAY.candles - out)}`;
+function bdayText(names, blower = "") {
+  const lit = Math.min(names.length, BDAY.candles), shown = names.slice(0, 30).map(esc).join(", "), more = names.length - 30;
+  let t = `${BDAY.head}\n\n${blower ? "💨".repeat(BDAY.candles) : "🔥".repeat(lit) + "🕯".repeat(BDAY.candles - lit)}`;
   if (names.length) t += `\n\n🎉 Tabrikladi: ${shown}${more > 0 ? ` va yana ${more} kishi` : ""} (${names.length})`;
-  if (names.length >= BDAY.candles) t += "\n\n🎂 <b>Barcha shamlar o'chdi, tilaging ushalsin!</b> 🥳";
-  if (thanks) t += `\n\n🙏 <b>${esc(thanks)}: Rahmat hammaga!</b>`;
+  if (blower) t += `\n\n🌬 <b>${esc(blower)} shamlarni puflab o'chirdi! Tilagi ushalsin!</b> 🥳\n🙏 <b>${esc(blower)}: Rahmat hammaga!</b>`;
+  else if (names.length >= BDAY.candles) t += "\n\n🎂 <b>Barcha shamlar yondi!</b> Endi @abdugapirov22 tugmani bosib, ularni puflab o'chirsin 🌬";
   return t;
 }
 async function sendBday(env, now = false) {
@@ -497,13 +497,15 @@ async function bdayTap(env, q) {
   const u = q.from || {}, m = q.message;
   if (!m) return answerCb(env, q, "🎉");
   const pre = `${BDAY.key}:${m.chat.id}:`, name = [u.first_name, u.last_name].filter(Boolean).join(" ").slice(0, 40) || "Sinfdosh";
-  const hero = (u.username || "").toLowerCase() === BDAY.user; // the birthday person's tap = a "thank you all" line, once
+  const test = m.chat.id === OWNER_ID && u.id === OWNER_ID; // owner's private preview: 1st tap lights a candle, 2nd tap blows them out
+  const hero = (u.username || "").toLowerCase() === BDAY.user || (test && !!await env.DB.prepare("SELECT 1 FROM snap WHERE k = ?").bind(pre + u.id).first());
   const ins = await env.DB.prepare("INSERT OR IGNORE INTO snap (k, at, data) VALUES (?, ?, ?)").bind(pre + (hero ? "thanks" : u.id), Date.now(), JSON.stringify(name)).run();
-  if (!ins.meta?.changes) return answerCb(env, q, hero ? "🙏 Rahmatingiz allaqachon xabarda 🎂" : "Siz allaqachon tabrikladingiz 🙂 Rahmat!");
+  if (!ins.meta?.changes) return answerCb(env, q, hero ? "🌬 Shamlar allaqachon o'chgan. Tug'ilgan kuningiz muborak! 🎂" : "Siz allaqachon tabrikladingiz 🙂 Rahmat!");
   const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;
   const names = rows.filter(r => r.k !== pre + "thanks").map(r => JSON.parse(r.data)), n = names.length, th = rows.find(r => r.k === pre + "thanks");
-  if (hero) await answerCb(env, q, "🎂 Tug'ilgan kuningiz muborak! Rahmatingiz hammaga yetkazildi 🙏");
-  else await answerCb(env, q, n === BDAY.candles ? "🥳 Oxirgi shamni siz o'chirdingiz! Tilak ushalsin!" : n < BDAY.candles ? "🎉 Tabrigingiz qo'shildi! Bitta sham o'chdi 💨" : "🎉 Tabrigingiz qo'shildi!", n === BDAY.candles);
+  if (hero) await answerCb(env, q, "🌬 Puff! Shamlar o'chdi. Tilagingiz ushalsin, tug'ilgan kuningiz muborak! 🎂", true);
+  else if (th) await answerCb(env, q, "🎉 Tabrigingiz qo'shildi! Shamlar allaqachon puflandi 🌬");
+  else await answerCb(env, q, n === BDAY.candles ? "🎂 Oxirgi shamni siz yoqdingiz! Endi tug'ilgan kun egasi puflasin 🌬" : n < BDAY.candles ? "🔥 Tabrigingiz qo'shildi! Bitta sham yondi" : "🎉 Tabrigingiz qo'shildi!", n === BDAY.candles);
   await tg(env, "editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: bdayText(names, th ? JSON.parse(th.data) : ""), parse_mode: "HTML", reply_markup: bdayKb }).catch(() => {});
 }
 
@@ -848,8 +850,8 @@ export default {
       }
       if (url.pathname === "/bday/test" && req.method === "GET") { // preview of the birthday post, sent only to the owner's private chat, at most 5 times
         const c = await env.DB.prepare("INSERT INTO meta (k, v) VALUES ('bday:test', 1) ON CONFLICT(k) DO UPDATE SET v = v + 1 RETURNING v").first();
-        if (c.v <= 5) await tg(env, "sendMessage", { chat_id: OWNER_ID, text: bdayText([]), parse_mode: "HTML", reply_markup: bdayKb });
-        return new Response(c.v <= 5 ? "ok" : "limit");
+        if (c.v <= 10) await tg(env, "sendMessage", { chat_id: OWNER_ID, text: bdayText([]), parse_mode: "HTML", reply_markup: bdayKb });
+        return new Response(c.v <= 10 ? "ok" : "limit");
       }
       if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env, true); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
       if (url.pathname === "/tg/botinfo" && req.method === "GET") { // public facts only: does the bot have a Main Mini App, where does the menu button point

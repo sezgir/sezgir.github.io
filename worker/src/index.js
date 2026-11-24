@@ -468,6 +468,43 @@ async function sendPromo(env, now = false) {
     await tg(env, "sendMessage", { chat_id: g.chat_id, text: PROMO.text, parse_mode: "HTML", reply_markup: { inline_keyboard: PROMO.buttons } }).catch(() => {});
 }
 
+// One-off birthday greeting (owner-approved): sent once after `at` to groups matching PROMO.match. Each tap on the button
+// blows out one candle and adds the tapper's name; when all candles are out the message gets a closing line.
+const BDAY = {
+  key: "bday:abdugapirov22-2026-11-25", at: Date.parse("2026-11-25T04:00:00Z"), user: "abdugapirov22", candles: 10, // 09:00 Tashkent
+  head: "🎂 <b>Bugun tug'ilgan kun!</b>\nAziz sinfdoshimiz @abdugapirov22, tug'ilgan kuning muborak! Sog'lik, omad va baxt doim yoningda bo'lsin. Maktabdagidek doim quvnoq bo'lib qol!\n\nPastdagi tugmani bosib, sen ham tabrikla 👇",
+};
+const bdayKb = { inline_keyboard: [[{ text: "🎉 Tabriklayman", style: "success", callback_data: "bd" }]] };
+function bdayText(names) {
+  const out = Math.min(names.length, BDAY.candles), shown = names.slice(0, 30).map(esc).join(", "), more = names.length - 30;
+  let t = `${BDAY.head}\n\n${"💨".repeat(out)}${"🕯".repeat(BDAY.candles - out)}`;
+  if (names.length) t += `\n\n🎉 Tabrikladi: ${shown}${more > 0 ? ` va yana ${more} kishi` : ""} (${names.length})`;
+  if (names.length >= BDAY.candles) t += "\n\n🎂 <b>Barcha shamlar o'chdi, tilaging ushalsin!</b> 🥳";
+  return t;
+}
+async function sendBday(env, now = false) {
+  if (!now && Date.now() < BDAY.at) return;
+  if (await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(BDAY.key).first()) return;
+  await env.DB.prepare("INSERT INTO meta (k, v) VALUES (?, 1) ON CONFLICT(k) DO NOTHING").bind(BDAY.key).run(); // mark first: never send twice
+  const { results } = await env.DB.prepare("SELECT chat_id, title FROM tg_groups WHERE active = 1").all();
+  for (const g of results.filter((g) => PROMO.match.test(g.title || ""))) {
+    const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: bdayText([]), parse_mode: "HTML", reply_markup: bdayKb }).catch(() => null);
+    if (r?.ok) await tg(env, "setMessageReaction", { chat_id: g.chat_id, message_id: r.result.message_id, reaction: [{ type: "emoji", emoji: "🎉" }] }).catch(() => {});
+  }
+}
+async function bdayTap(env, q) {
+  const u = q.from || {}, m = q.message;
+  if (!m) return answerCb(env, q, "🎉");
+  if ((u.username || "").toLowerCase() === BDAY.user) return answerCb(env, q, "🎂 Bu sizning bayramingiz! Barcha tabriklar sizga 🎉", true);
+  const pre = `${BDAY.key}:${m.chat.id}:`, name = [u.first_name, u.last_name].filter(Boolean).join(" ").slice(0, 40) || "Sinfdosh";
+  const ins = await env.DB.prepare("INSERT OR IGNORE INTO snap (k, at, data) VALUES (?, ?, ?)").bind(pre + u.id, Date.now(), JSON.stringify(name)).run();
+  if (!ins.meta?.changes) return answerCb(env, q, "Siz allaqachon tabrikladingiz 🙂 Rahmat!");
+  const rows = (await env.DB.prepare("SELECT data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;
+  const names = rows.map(r => JSON.parse(r.data)), n = names.length;
+  await answerCb(env, q, n === BDAY.candles ? "🥳 Oxirgi shamni siz o'chirdingiz! Tilak ushalsin!" : n < BDAY.candles ? "🎉 Tabrigingiz qo'shildi! Bitta sham o'chdi 💨" : "🎉 Tabrigingiz qo'shildi!", n === BDAY.candles);
+  await tg(env, "editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: bdayText(names), parse_mode: "HTML", reply_markup: bdayKb }).catch(() => {});
+}
+
 async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note in each group, with yesterday's winner
   const day = tzDay(), yday = shiftDay(day, -1);
   const groups = await env.DB.prepare("SELECT chat_id FROM tg_groups WHERE active = 1").all();
@@ -543,6 +580,7 @@ async function onCallback(env, q) {
   if (k === "dp") return duelPick(env, q, from, Number(x), Number(y));
   if (k === "da" || k === "dr") return duelAnswer(env, q, from, x, k === "da");
   if (k === "fb") return fbRate(env, q, from, x);
+  if (k === "bd") return bdayTap(env, q);
   await answerCb(env, q, "");
 }
 
@@ -894,7 +932,7 @@ export default {
   },
   async scheduled(event, env, ctx) { // hourly: duels; 04:00 UTC = 09:00 Tashkent (morning), 14:00 UTC = 19:00 (evening), 16:00 UTC = 21:00 (group boards)
     if (!env.TG_BOT_TOKEN) return;
-    if (event.cron === "0 * * * *") ctx.waitUntil(duelSweep(env).catch(() => {}).then(() => duelRemind(env)).catch(() => {}).then(() => fbRemind(env)).catch(() => {}).then(() => sendPromo(env)).catch(() => {})); // hourly: duel expiry + reminders
+    if (event.cron === "0 * * * *") ctx.waitUntil(duelSweep(env).catch(() => {}).then(() => duelRemind(env)).catch(() => {}).then(() => fbRemind(env)).catch(() => {}).then(() => sendPromo(env)).catch(() => {}).then(() => sendBday(env)).catch(() => {})); // hourly: duel expiry + reminders
     else if (event.cron === "0 16 * * *") ctx.waitUntil(Promise.all([postBoards(env), watchMisses(env).catch(() => {})]));
     else if (event.cron === "0 4 * * *") ctx.waitUntil(Promise.all([remind(env, false), morningGroups(env)]));
     else if (event.cron === "0 14 * * *") ctx.waitUntil(Promise.all([remind(env, true), duelNudge(env).catch(() => {})]));

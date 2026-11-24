@@ -25,6 +25,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
 <script>/* inside Telegram (Mini App) only: load Telegram's SDK before anything touches the URL hash */
 if (/tgWebApp/.test(location.hash) || window.TelegramWebviewProxy || (() => { try { return !!sessionStorage.getItem("__telegram__initParams"); } catch { return false; } })()) document.write('<script src="https://telegram.org/js/telegram-web-app.js"><\/script>');</script>
+<script>/* bot links ?startapp=chaqmoq / ?startapp=pistirma open the game straight away */
+(() => { try { const m = /[#&]tgWebAppStartParam=([\w-]+)/.exec(location.hash) || /[?&]startapp=([\w-]+)/.exec(location.search); const go = { chaqmoq: "poyga/", poyga: "poyga/", pistirma: "pistirma/" }[m && m[1]];
+  if (go) location.replace(go + location.hash); } catch {} })();</script>
 <script>try { document.documentElement.dataset.theme = localStorage.getItem("sezgir:theme") === "light" ? "light" : "dark"; } catch { document.documentElement.dataset.theme = "dark"; }</script>
 <style>
 /* Layout: one quiet centred column; the stage is the only framed object; everything else is type and space */

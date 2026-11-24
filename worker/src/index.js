@@ -472,7 +472,7 @@ async function sendPromo(env, now = false) {
 // one candle (🕯 -> 🔥) and adds their name; the birthday person's tap blows them all out (💨) with a "thank you all" line.
 const BDAY = {
   key: "bday:abdugapirov22-2026-11-25", at: Date.parse("2026-11-25T04:00:00Z"), user: "abdugapirov22", uid: 634244640, candles: 10, // 09:00 Tashkent
-  head: "🎂 <b>Bugun tug'ilgan kun!</b>\nSinfdoshimiz @abdugapirov22, tug‘ilgan kuning muborak!\n\nSenga mustahkam sog‘lik, oilaviy baxt, omad va ishlaringda rivoj tilaymiz. Barcha ezgu niyatlaring amalga oshsin, hayotda doimo o‘z o‘rningni topib, yuksak marralarni zabt et. Yaqinlaring ardog‘ida, do‘stlaring davrasida doimo sog‘-omon yur!\n\nBayraming muborak, sinfdosh! <b>Yeb-ichar qayerda?</b> 👀\n\nTugmani bosib tabrikla: har bir tabrik bitta sham yoqadi 🔥\nShamlarni esa tug'ilgan kun egasi o'zi puflab o'chiradi 🌬",
+  head: "🎂 <b>Bugun tug'ilgan kun!</b>\nSinfdoshimiz @abdugapirov22, tug‘ilgan kuning muborak!\n\nSenga mustahkam sog‘lik, oilaviy baxt, cheksiz omad va hamyoningga doimiy daromad tilaymiz. Ishlaring yurishsin, qarzlar kamayib, daromadlar ko‘paysin. Orzularing amalga oshsin, faqat orzu qilish bilan cheklanib qolma!\n\nBayraming muborak, sinfdosh! <b>Yeb-ichar qayerda?</b> 👀\n\nTugmani bosib tabrikla: har bir tabrik bitta sham yoqadi 🔥\nShamlarni esa tug'ilgan kun egasi o'zi puflab o'chiradi 🌬",
 };
 const bdayKb = { inline_keyboard: [[{ text: "🎉 Tabriklayman", style: "success", callback_data: "bd" }]] };
 function bdayText(names, blower = "") {

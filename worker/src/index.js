@@ -496,7 +496,7 @@ async function sendBday(env, now = false) {
 async function bdayTap(env, q) {
   const u = q.from || {}, m = q.message;
   if (!m) return answerCb(env, q, "🎉");
-  const pre = `${BDAY.key}:${m.chat.id}:`, name = [u.first_name, u.last_name].filter(Boolean).join(" ").slice(0, 40) || "Sinfdosh";
+  const pre = `${BDAY.key}:${m.chat.id}:${m.message_id}:` /* per message, so each owner preview starts fresh */, name = [u.first_name, u.last_name].filter(Boolean).join(" ").slice(0, 40) || "Sinfdosh";
   const test = m.chat.id === OWNER_ID && u.id === OWNER_ID; // owner's private preview: 1st tap lights a candle, 2nd tap blows them out
   const hero = (u.username || "").toLowerCase() === BDAY.user || (test && !!await env.DB.prepare("SELECT 1 FROM snap WHERE k = ?").bind(pre + u.id).first());
   const ins = await env.DB.prepare("INSERT OR IGNORE INTO snap (k, at, data) VALUES (?, ?, ?)").bind(pre + (hero ? "thanks" : u.id), Date.now(), JSON.stringify(name)).run();

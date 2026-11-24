@@ -124,7 +124,12 @@ function index(r) {
   const days = new Map(); for (const x of r.plays) { const d = days.get(x.date) || (days.set(x.date, { date: x.date, plays: [], fresh: 0, vis: 0, duels: 0 }), days.get(x.date)); d.plays.push(x); if (x.p.first === x.date) d.fresh++; }
   for (const v of r.visits) { const d = days.get(v.date); if (d) d.vis = v.n; else days.set(v.date, { date: v.date, plays: [], fresh: 0, vis: v.n, duels: 0 }); }
   for (const x of r.duels) { const d = days.get(x.day); if (d) d.duels++; }
-  return { ...r, users, players, groups, days: [...days.values()].sort((a, b) => a.date < b.date ? -1 : 1) };
+  const games = {}; // other games: per game, its rows plus per-player totals (names from Sezgir players when the device is known)
+  for (const id of Object.keys(GAME_INFO)) games[id] = { id, rows: [], who: new Map() };
+  for (const x of r.games || []) { const g = games[x.game]; if (!g) continue; g.rows.push(x); const u = byClient.get(x.client), key = u ? String(u.chat_id) : "c:" + x.client;
+    const sp = players.get(key), w = g.who.get(key) || (g.who.set(key, { key, p: sp || null, name: sp ? sp.name : `Saytdan · ${x.client.slice(0, 5)}`, starts: 0, finishes: 0, wins: 0, best: null, days: new Set(), last: x.date }), g.who.get(key));
+    w.starts += x.starts; w.finishes += x.finishes; w.wins += x.wins; w.days.add(x.date); w.last = x.date; if (x.best != null) w.best = w.best == null ? x.best : GAME_INFO[x.game].low ? Math.min(w.best, x.best) : Math.max(w.best, x.best); }
+  return { ...r, users, players, groups, games, days: [...days.values()].sort((a, b) => a.date < b.date ? -1 : 1) };
 }
 
 // vertical bars; series = [{key, label, color}] stacked bottom-up; hover or tap a bar to read it; onPick adds a link to its own page
@@ -174,6 +179,25 @@ function duelRow(x) { const r = el("div", "row"); const nm = el("div", "nm"); co
   if (x.as && x.bs) { const g = el("div", "duo"); g.append(el("span"), el("span", null, x.A.name.slice(0, 10)), el("span", null, x.B.name.slice(0, 10))); x.as.forEach((v, i) => { const w = x.bs[i]; g.append(el("span", null, testName(i, x.day)), el("b", v > w ? "w" : null, String(v)), el("b", w > v ? "w" : null, String(w))); }); r.append(g); }
   return r; }
 
+// ---------- other games (Chaqmoq, Pistirma) ----------
+const GAME_INFO = { chaqmoq: { name: "🏎 Chaqmoq", low: true, fin: "marraga yetdi", best: "eng tez", fmt: v => `${Math.floor(v / 60)}:${(v % 60).toFixed(2).padStart(5, "0")}` }, pistirma: { name: "🎯 Pistirma", low: false, fin: "o'yinni tugatdi", best: "eng ko'p ochko", fmt: v => String(Math.round(v)) } };
+function gameSwitch(cur) { const t = el("div", "tabs"); t.style.cssText = "margin:-4px 0 2px";
+  [["", "Sezgir"], ...Object.entries(GAME_INFO).map(([id, I]) => ["game/" + id, I.name.replace(/^\S+ /, "")])].forEach(([h, n]) => { const a = el("a", "tab" + (h === cur ? " on" : ""), n); a.href = "#" + h; t.append(a); }); return t; }
+function gameSum(g, date) { const rows = date ? g.rows.filter(x => x.date === date) : g.rows, bs = rows.map(x => x.best).filter(v => v != null), I = GAME_INFO[g.id];
+  return { players: new Set(rows.map(x => x.client)).size, starts: rows.reduce((a, x) => a + x.starts, 0), finishes: rows.reduce((a, x) => a + x.finishes, 0), wins: rows.reduce((a, x) => a + x.wins, 0), best: bs.length ? (I.low ? Math.min(...bs) : Math.max(...bs)) : null }; }
+function gamePage(id) {
+  const g = D.games[id]; if (!g) return home(); const I = GAME_INFO[id], a = gameSum(g), t = gameSum(g, D.day), who = [...g.who.values()];
+  const dates = []; for (let i = 29; i >= 0; i--) dates.push(new Date(Date.parse(D.day + "T12:00:00Z") - i * 864e5).toISOString().slice(0, 10));
+  const first = g.rows[0]?.date || D.day, rows = dates.filter(d => d >= first).map(d => ({ date: d, ...gameSum(g, d) }));
+  const chart = bars(rows, [{ key: "starts", color: css("--accent") }], lbl(rows, "date"), r => `${dl(r.date)}: ${r.players} kishi · ${r.starts} o'yin · ${I.fin} ${r.finishes} · g'alaba ${r.wins}${r.best != null ? ` · ${I.best} ${I.fmt(r.best)}` : ""}`, { h: 170, aria: "Kunlik o'yinlar" });
+  const l = el("div", "list"); who.sort((x, y) => y.starts - x.starts || String(y.last).localeCompare(String(x.last))).forEach(w => { const r = w.p ? link(pHref(w.p)) : el("div", "row"); const num = el("div", "num"); num.append(el("b", null, `${w.starts} o'yin`), ` · ${w.days.size} kun`);
+    r.append(el("div", "nm", w.name), num, el("div", "det", [`${I.fin} ${w.finishes}`, `g'alaba ${w.wins}`, w.best != null ? `${I.best} ${I.fmt(w.best)}` : "", `oxirgi ${dl(w.last)}`].filter(Boolean).join(" · "))); l.append(r); });
+  if (!who.length) l.append(el("p", "empty", "Hali hech kim o'ynamadi."));
+  $app.replaceChildren(head(), gameSwitch("game/" + id),
+    kpis([[a.players, "o'yinchi jami", `bugun ${t.players}`], [a.starts, "o'yin boshlandi", `bugun ${t.starts}`], [a.finishes, I.fin, a.starts ? `${Math.round(a.finishes / a.starts * 100)}% tugatadi` : ""], [a.wins, "g'alaba", a.finishes ? `${Math.round(a.wins / a.finishes * 100)}% tugatganlardan` : ""], [a.best != null ? I.fmt(a.best) : "–", I.best, t.best != null ? `bugun ${I.fmt(t.best)}` : ""]]),
+    card("Kunlik o'yinlar", "o'yin boshlanishlari soni · ustun ustiga olib boring", chart), card(`O'yinchilar (${who.length})`, "Telegram orqali kirganlar ismi bilan", l));
+}
+
 // ---------- pages ----------
 function home() {
   const all = [...D.players.values()], played = all.filter(p => p.n), today = D.days.find(x => x.date === D.day) || { plays: [], fresh: 0, vis: 0 };
@@ -201,7 +225,7 @@ function home() {
   const top = played.slice().sort((a, b) => b.n - a.n || b.avg - a.avg).slice(0, 5), more = link("#players", "row"); more.append(el("div", "nm", `Barcha o'yinchilar (${all.length}) →`));
   const lst = el("div", "list"); top.forEach(p => lst.append(playerRow(p))); lst.append(more);
   const gl = el("div", "list"); [...D.groups.values()].filter(g => g.active).sort((a, b) => b.members.length - a.members.length).forEach(g => { const r = link(`#g/${g.chat_id}`); const t = g.members.filter(p => p.today != null).length; const num = el("div", "num"); num.append(el("b", null, `${t}/${g.members.length}`), " bugun"); r.append(el("div", "nm", g.title || "Guruh"), num); gl.append(r); });
-  $app.replaceChildren(head(), sbox,
+  $app.replaceChildren(head(), gameSwitch(""), sbox,
     kpis([[played.length, "o'yinchi jami", `Telegram ${played.filter(p => p.user).length} · sayt ${played.filter(p => !p.user).length}`, "#players"], [today.plays.length, "bugun o'ynadi", `yangi ${today.fresh} · kirgan ${today.vis}`, `#d/${D.day}`],
       [played.filter(p => p.n >= 2).length, "2+ kun o'ynagan", `5+ kun: ${played.filter(p => p.n >= 5).length}`, "#players"], [D.users.size ? [...D.users.values()].filter(u => u.active).length : 0, "eslatma yoqilgan", `botda jami ${D.users.size}`, "#players"],
       [[...D.groups.values()].filter(g => g.active).length, "faol guruh", "", "#groups"], [D.plays.length, "jami o'yin", `o'rtacha ball ${avg(D.plays.map(x => x.total))}`],
@@ -294,7 +318,7 @@ function ratingsPage() { const l = el("div", "list"); D.feedback.slice().sort((a
     card("Taqsimot", "foizda", hbars(dist)), card("Barcha baholar", null, l)); }
 
 function route() { if (!D) return; const h = decodeURIComponent(location.hash.slice(1)); window.scrollTo(0, 0);
-  if (h === "players") playersPage(); else if (h.startsWith("p/")) playerPage(h.slice(2)); else if (h.startsWith("d/")) dayPage(h.slice(2)); else if (h === "groups") groupsPage(); else if (h.startsWith("g/")) groupPage(h.slice(2)); else if (h === "duels") duelsPage(); else if (h === "ratings") ratingsPage(); else home(); }
+  if (h === "players") playersPage(); else if (h.startsWith("p/")) playerPage(h.slice(2)); else if (h.startsWith("d/")) dayPage(h.slice(2)); else if (h === "groups") groupsPage(); else if (h.startsWith("g/")) groupPage(h.slice(2)); else if (h === "duels") duelsPage(); else if (h === "ratings") ratingsPage(); else if (h.startsWith("game/")) gamePage(h.slice(5)); else home(); }
 window.addEventListener("hashchange", route);
 
 async function load() {

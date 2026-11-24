@@ -511,6 +511,8 @@ async function bdayTap(env, q) {
   else if (th) await answerCb(env, q, "🎉 Tabrigingiz qo'shildi! Shamlar allaqachon puflandi 🌬");
   else await answerCb(env, q, n === BDAY.candles ? "🎂 Oxirgi shamni siz yoqdingiz! Endi tug'ilgan kun egasi puflasin 🌬" : n < BDAY.candles ? "🔥 Tabrigingiz qo'shildi! Bitta sham yondi" : "🎉 Tabrigingiz qo'shildi!", n === BDAY.candles);
   await tg(env, "editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: bdayText(names, th ? JSON.parse(th.data) : ""), parse_mode: "HTML", reply_markup: bdayKb }).catch(() => {});
+  if (!hero && !th && n === BDAY.candles && !test) // 10th candle: a reply that @-mentions the birthday person, so Telegram notifies them (edits don't)
+    await tg(env, "sendMessage", { chat_id: m.chat.id, text: `🔥 @${BDAY.user}, 10 ta sham yondi! Endi tabrik xabaridagi tugmani bosib, ularni puflab o'chir 🌬`, reply_parameters: { message_id: m.message_id, allow_sending_without_reply: true } }).catch(() => {});
 }
 
 async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note in each group, with yesterday's winner

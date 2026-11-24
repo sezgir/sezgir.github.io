@@ -70,6 +70,40 @@ async function summary(env, n = 14) { // last n days: visitors and players per d
 }
 
 
+// ---------- other games (Chaqmoq, Pistirma): per-day plays, players, wins, best ----------
+const GAMES = { chaqmoq: { low: true, min: 20, max: 3600 }, pistirma: { low: false, min: 0, max: 1e6 } }; // low: smaller best is better (race time, s)
+let gameTblReady = false;
+async function gameTbl(env) {
+  if (gameTblReady) return;
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS game_plays (game TEXT NOT NULL, date TEXT NOT NULL, client TEXT NOT NULL, starts INTEGER NOT NULL DEFAULT 0, finishes INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, best REAL, PRIMARY KEY (game, date, client))").run();
+  gameTblReady = true;
+}
+async function gameEvent(env, b) { // {game, client, ev: "start"|"finish", win, val}
+  const g = GAMES[b.game]; if (!g || !CLIENT.test(b.client) || (b.ev !== "start" && b.ev !== "finish")) return false;
+  await gameTbl(env);
+  const fin = b.ev === "finish", v = Number(b.val), val = fin && Number.isFinite(v) && v >= g.min && v <= g.max ? v : null;
+  await env.DB.prepare(`INSERT INTO game_plays (game, date, client, starts, finishes, wins, best) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(game, date, client) DO UPDATE SET starts = starts + excluded.starts, finishes = finishes + excluded.finishes, wins = wins + excluded.wins,
+    best = CASE WHEN excluded.best IS NULL THEN best WHEN best IS NULL THEN excluded.best ELSE ${g.low ? "MIN" : "MAX"}(best, excluded.best) END`)
+    .bind(b.game, tzDay(), b.client, fin ? 0 : 1, fin ? 1 : 0, fin && b.win ? 1 : 0, val).run();
+  return true;
+}
+async function gamesSummary(env, n = 14) {
+  return cached(env, "games:" + n, 60e3, async () => {
+    await gameTbl(env);
+    const dates = []; for (let i = n - 1; i >= 0; i--) dates.push(tzDay(new Date(Date.now() - i * 864e5)));
+    const out = {};
+    for (const [id, g] of Object.entries(GAMES)) {
+      const agg = g.low ? "MIN" : "MAX";
+      const { results } = await env.DB.prepare(`SELECT date, COUNT(*) AS players, SUM(starts) AS plays, SUM(finishes) AS finishes, SUM(wins) AS wins, ${agg}(best) AS best FROM game_plays WHERE game = ? AND date >= ? GROUP BY date`).bind(id, dates[0]).all();
+      const by = Object.fromEntries(results.map((r) => [r.date, r]));
+      const tot = await env.DB.prepare(`SELECT COUNT(DISTINCT client) AS players, COALESCE(SUM(starts), 0) AS plays, COALESCE(SUM(finishes), 0) AS finishes, COALESCE(SUM(wins), 0) AS wins, ${agg}(best) AS best FROM game_plays WHERE game = ?`).bind(id).first();
+      out[id] = { days: dates.map((d) => ({ date: d, players: by[d]?.players || 0, plays: by[d]?.plays || 0, finishes: by[d]?.finishes || 0, wins: by[d]?.wins || 0, best: by[d]?.best ?? null })), total: tot };
+    }
+    return out;
+  });
+}
+
 // ---------- Telegram bot: daily reminders + streak ----------
 const SITE = "https://sezgir.github.io/";
 const LAUNCH = Date.UTC(2026, 10, 12); // #1
@@ -406,13 +440,13 @@ const NEWS = { "2026-11-21": "🆕 <b>Yangi test: Ketmon!</b> Doira o'rniga endi
 const newsOf = day => NEWS[day] || "";
 // One-off group announcement (owner-approved). Sent once by the hourly cron after `at`, only to groups whose title matches.
 const PROMO = {
-  key: "promo:games-2026-11", at: Date.parse("2026-11-24T18:00:00Z"), // owner chose "send now" (23:2x Tashkent)
+  key: "promo:games-2026-11", at: Date.parse("2026-11-25T08:00:00Z"), // cron fallback 13:00 Tashkent; /promo/go sends right away
   match: /синфдош|sinfdosh/i,
   text: "🎮 <b>Sezgirda yangi o'yinlar!</b>\nKunlik testdan tashqari endi 2 ta o'yin bor:\n🏎 <b>Chaqmoq</b>: 3D mashina poygasi. 5 ta botni quvib o'ting, nitroni bosing va 3 aylanada birinchi bo'ling.\n🎯 <b>Pistirma</b>: tungi otishma, botlarga qarshi.\nTelefonda ham, kompyuterda ham ishlaydi. Kim birinchi bo'lib Chaqmoqni \"Qiyin\" darajada yutar ekan? 😉",
   buttons: [[{ text: "🏎 Chaqmoq", style: "success", url: `https://t.me/${BOT_USER}?startapp=chaqmoq` }, { text: "🎯 Pistirma", style: "primary", url: `https://t.me/${BOT_USER}?startapp=pistirma` }]],
 };
-async function sendPromo(env) {
-  if (Date.now() < PROMO.at) return;
+async function sendPromo(env, now = false) {
+  if (!now && Date.now() < PROMO.at) return;
   if (await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(PROMO.key).first()) return;
   await env.DB.prepare("INSERT INTO meta (k, v) VALUES (?, 1) ON CONFLICT(k) DO NOTHING").bind(PROMO.key).run(); // mark first: never send twice
   const { results } = await env.DB.prepare("SELECT chat_id, title FROM tg_groups WHERE active = 1").all();
@@ -758,7 +792,7 @@ export default {
         else if (upd?.pre_checkout_query) { const q = upd.pre_checkout_query; await tg(env, "answerPreCheckoutQuery", { pre_checkout_query_id: q.id, ok: q.currency === "XTR" && /^don:[01]$/.test(q.invoice_payload), error_message: "To'lovni qabul qilib bo'lmadi, qayta urinib ko'ring." }); }
         return new Response("ok");
       }
-      if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
+      if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env, true); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
       if (url.pathname === "/tg/setup" && req.method === "GET") {
         if (!env.TG_BOT_TOKEN || !env.TG_WEBHOOK_SECRET || url.searchParams.get("key") !== env.TG_WEBHOOK_SECRET) return json({ error: "forbidden" }, 403, h);
         return json(await tgSetup(env, url.origin), 200, h);
@@ -789,6 +823,8 @@ export default {
       }
       if (url.pathname === "/live" && req.method === "GET") return json(await live(env), 200, { ...h, "Cache-Control": "public, max-age=20" });
       if (url.pathname === "/summary" && req.method === "GET") return json(await summary(env, Math.min(Math.max(parseInt(url.searchParams.get("days") || "14", 10) || 14, 7), 60)), 200, { ...h, "Cache-Control": "public, max-age=60" });
+      if (url.pathname === "/game" && req.method === "POST") { const b = await req.json().catch(() => null); return (b && await gameEvent(env, b)) ? json({ ok: true }, 200, h) : json({ error: "bad body" }, 400, h); }
+      if (url.pathname === "/games" && req.method === "GET") return json(await gamesSummary(env, Math.min(Math.max(parseInt(url.searchParams.get("days") || "14", 10) || 14, 7), 60)), 200, { ...h, "Cache-Control": "public, max-age=60" });
       if (url.pathname === "/ping" && req.method === "POST") {
         const b = await req.json().catch(() => null);
         if (!b || !CLIENT.test(b.client)) return json({ error: "bad body" }, 400, h);

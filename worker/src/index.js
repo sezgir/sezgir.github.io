@@ -472,7 +472,7 @@ async function sendPromo(env, now = false) {
 // one candle (🕯 -> 🔥) and adds their name; the birthday person's tap blows them all out (💨) with a "thank you all" line.
 const BDAY = {
   key: "bday:abdugapirov22-2026-11-25", at: Date.parse("2026-11-25T04:00:00Z"), user: "abdugapirov22", candles: 10, // 09:00 Tashkent
-  head: "🎂 <b>Bugun tug'ilgan kun!</b>\nAziz sinfdoshimiz @abdugapirov22, tug'ilgan kuning muborak! Sog'lik, omad va baxt doim yoningda bo'lsin. Maktabdagidek doim quvnoq bo'lib qol!\n\nTugmani bosib tabrikla: har bir tabrik bitta sham yoqadi 🔥\nShamlarni esa tug'ilgan kun egasi o'zi puflab o'chiradi 🌬",
+  head: "🎂 <b>Bugun tug'ilgan kun!</b>\nSinfdoshimiz @abdugapirov22, tug'ilgan kuning muborak! Sog'lik, omad va baxt doim yoningda bo'lsin. Maktabdagidek doim quvnoq bo'lib qol!\n\nTugmani bosib tabrikla: har bir tabrik bitta sham yoqadi 🔥\nShamlarni esa tug'ilgan kun egasi o'zi puflab o'chiradi 🌬",
 };
 const bdayKb = { inline_keyboard: [[{ text: "🎉 Tabriklayman", style: "success", callback_data: "bd" }]] };
 function bdayText(names, blower = "") {

@@ -475,11 +475,12 @@ const BDAY = {
   head: "🎂 <b>Bugun tug'ilgan kun!</b>\nAziz sinfdoshimiz @abdugapirov22, tug'ilgan kuning muborak! Sog'lik, omad va baxt doim yoningda bo'lsin. Maktabdagidek doim quvnoq bo'lib qol!\n\nPastdagi tugmani bosib, sen ham tabrikla 👇",
 };
 const bdayKb = { inline_keyboard: [[{ text: "🎉 Tabriklayman", style: "success", callback_data: "bd" }]] };
-function bdayText(names) {
+function bdayText(names, thanks = "") {
   const out = Math.min(names.length, BDAY.candles), shown = names.slice(0, 30).map(esc).join(", "), more = names.length - 30;
   let t = `${BDAY.head}\n\n${"💨".repeat(out)}${"🕯".repeat(BDAY.candles - out)}`;
   if (names.length) t += `\n\n🎉 Tabrikladi: ${shown}${more > 0 ? ` va yana ${more} kishi` : ""} (${names.length})`;
   if (names.length >= BDAY.candles) t += "\n\n🎂 <b>Barcha shamlar o'chdi, tilaging ushalsin!</b> 🥳";
+  if (thanks) t += `\n\n🙏 <b>${esc(thanks)}: Rahmat hammaga!</b>`;
   return t;
 }
 async function sendBday(env, now = false) {
@@ -495,14 +496,15 @@ async function sendBday(env, now = false) {
 async function bdayTap(env, q) {
   const u = q.from || {}, m = q.message;
   if (!m) return answerCb(env, q, "🎉");
-  if ((u.username || "").toLowerCase() === BDAY.user) return answerCb(env, q, "🎂 Bu sizning bayramingiz! Barcha tabriklar sizga 🎉", true);
   const pre = `${BDAY.key}:${m.chat.id}:`, name = [u.first_name, u.last_name].filter(Boolean).join(" ").slice(0, 40) || "Sinfdosh";
-  const ins = await env.DB.prepare("INSERT OR IGNORE INTO snap (k, at, data) VALUES (?, ?, ?)").bind(pre + u.id, Date.now(), JSON.stringify(name)).run();
-  if (!ins.meta?.changes) return answerCb(env, q, "Siz allaqachon tabrikladingiz 🙂 Rahmat!");
-  const rows = (await env.DB.prepare("SELECT data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;
-  const names = rows.map(r => JSON.parse(r.data)), n = names.length;
-  await answerCb(env, q, n === BDAY.candles ? "🥳 Oxirgi shamni siz o'chirdingiz! Tilak ushalsin!" : n < BDAY.candles ? "🎉 Tabrigingiz qo'shildi! Bitta sham o'chdi 💨" : "🎉 Tabrigingiz qo'shildi!", n === BDAY.candles);
-  await tg(env, "editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: bdayText(names), parse_mode: "HTML", reply_markup: bdayKb }).catch(() => {});
+  const hero = (u.username || "").toLowerCase() === BDAY.user; // the birthday person's tap = a "thank you all" line, once
+  const ins = await env.DB.prepare("INSERT OR IGNORE INTO snap (k, at, data) VALUES (?, ?, ?)").bind(pre + (hero ? "thanks" : u.id), Date.now(), JSON.stringify(name)).run();
+  if (!ins.meta?.changes) return answerCb(env, q, hero ? "🙏 Rahmatingiz allaqachon xabarda 🎂" : "Siz allaqachon tabrikladingiz 🙂 Rahmat!");
+  const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;
+  const names = rows.filter(r => r.k !== pre + "thanks").map(r => JSON.parse(r.data)), n = names.length, th = rows.find(r => r.k === pre + "thanks");
+  if (hero) await answerCb(env, q, "🎂 Tug'ilgan kuningiz muborak! Rahmatingiz hammaga yetkazildi 🙏");
+  else await answerCb(env, q, n === BDAY.candles ? "🥳 Oxirgi shamni siz o'chirdingiz! Tilak ushalsin!" : n < BDAY.candles ? "🎉 Tabrigingiz qo'shildi! Bitta sham o'chdi 💨" : "🎉 Tabrigingiz qo'shildi!", n === BDAY.candles);
+  await tg(env, "editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: bdayText(names, th ? JSON.parse(th.data) : ""), parse_mode: "HTML", reply_markup: bdayKb }).catch(() => {});
 }
 
 async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note in each group, with yesterday's winner

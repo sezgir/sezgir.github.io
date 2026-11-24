@@ -235,7 +235,15 @@ async function adminStats(env, initData) {
     all("SELECT chat_id, name, username, stars, comment, asked, rated, commented FROM feedback"),
     all("SELECT date, COUNT(*) AS n FROM visits GROUP BY date"),
   ]);
-  return { day: tzDay(), now: Date.now(), tests: TEST_NAMES, users, plays, groups, members, duels, elo, feedback, visits };
+  await gameTbl(env); // other games; device ids folded into the Telegram client like Sezgir plays
+  const games = await all("SELECT g.game, g.date, COALESCE(a.client, g.client) AS client, g.starts, g.finishes, g.wins, g.best FROM game_plays g LEFT JOIN aliases a ON a.alias = g.client ORDER BY g.date");
+  return { day: tzDay(), now: Date.now(), tests: TEST_NAMES, users, plays, groups, members, duels, elo, feedback, visits, games };
+}
+async function gameLines(env, day) { // one line per other game for the owner's /statistika
+  await gameTbl(env);
+  const { results } = await env.DB.prepare("SELECT game, COUNT(DISTINCT client) AS players, SUM(starts) AS plays, SUM(CASE WHEN date = ? THEN 1 ELSE 0 END) AS today, SUM(CASE WHEN date = ? THEN starts ELSE 0 END) AS todayPlays FROM game_plays GROUP BY game").bind(day, day).all();
+  const by = Object.fromEntries(results.map(r => [r.game, r]));
+  return [["chaqmoq", "🏎 Chaqmoq"], ["pistirma", "🎯 Pistirma"]].map(([id, n]) => { const r = by[id] || {}; return `${n}: ${r.players || 0} o'yinchi, ${r.plays || 0} o'yin · bugun ${r.today || 0} kishi, ${r.todayPlays || 0} o'yin`; });
 }
 // ---------- /statistika: owner-only overview of players and plays ----------
 const TEST_NAMES = ["Anor", "Chillak", "Minora", "Ketmon", "Non"];
@@ -268,7 +276,7 @@ async function statList(env, chat) {
     testAvg ? `Testlar (o'rtacha): ${testAvg}` : "",
     `Kecha: ${ydy ? `${ydy.n} o'yin · o'rtacha ${ydy.avg}` : "0 o'yin"}`, "",
     `<b>Oxirgi kunlar</b> (o'yin · yangi · tashrif):`, ...days.map(d => `${dayLabel(d.date)}: ${d.n} · ${d.fresh} · ${d.vis}`), "",
-    `Duellar: ${t.duels} ta tugagan, ${t.duelsOpen} ta ochiq`,
+    `Duellar: ${t.duels} ta tugagan, ${t.duelsOpen} ta ochiq`, ...(await gameLines(env, day)),
     `Baholar: ${t.rated ? `${t.stars} / 5 (${t.rated} kishi)` : "hali yo'q"} · /baholar`].filter((l, i, a) => l !== "" || a[i - 1] !== "");
   await tg(env, "sendMessage", { chat_id: chat, text: L.join("\n"), parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "📊 Batafsil panel", style: "primary", web_app: { url: `${SITE}admin.html` } }]] } });
   const rows = (await q(`SELECT p.client, COUNT(*) AS n, ROUND(AVG(p.total)) AS avg, MAX(p.total) AS best, MAX(p.date) AS last, MIN(p.date) AS first, u.name

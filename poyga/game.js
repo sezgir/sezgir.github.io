@@ -609,8 +609,68 @@ const Audio = {
     const g = c.createGain(); g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(0.35, c.currentTime + 0.08); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.7);
     s.connect(f); f.connect(g); g.connect(this.master); s.start(); s.stop(c.currentTime + 0.8);
   },
-  mute(on) { this.on = on; store.set('sound', on); if (on) { this.init(); this.ctx && this.ctx.resume(); this.master && (this.master.gain.value = 0.55); } else if (this.master) this.master.gain.value = 0; },
+  mute(on) { this.on = on; store.set('sound', on); if (!on && typeof Music !== 'undefined') Music.stop(); if (on) { this.init(); this.ctx && this.ctx.resume(); this.master && (this.master.gain.value = 0.55); } else if (this.master) this.master.gain.value = 0; },
 };
+
+// ---------------------------------------------------------------- menu music (generated, no files)
+// D hijaz-flavoured groove: soft pad + plucked melody + doira-style frame drum
+const Music = {
+  on: false, timer: 0, step: 0, next: 0, bus: null,
+  BPM: 96,
+  CH: [[50, 54, 57], [48, 51, 55], [46, 50, 53], [50, 54, 57, 60]],          // D, Cm, Bb, D7
+  MEL: [[62, -1, 63, 66, 67, -1, 66, 63], [62, -1, 60, -1, 63, 62, 60, 58], [58, 60, 62, -1, 63, 62, 60, -1], [62, 63, 66, 69, 67, 66, 63, 62]],
+  DRUM: 'D..tD.t.D.t.Dttt', // D = dum, t = tak
+  play() {
+    if (!Audio.on || !Audio.ctx || this.on) return;
+    const c = Audio.ctx; this.on = true;
+    if (!this.bus) {
+      this.bus = c.createGain(); this.bus.connect(Audio.master);
+      const dl = c.createDelay(1); dl.delayTime.value = 60 / this.BPM * 0.75; const fb = c.createGain(); fb.gain.value = 0.32; const wet = c.createGain(); wet.gain.value = 0.35;
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+      dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(wet); wet.connect(this.bus); this.send = dl;
+    }
+    this.bus.gain.cancelScheduledValues(c.currentTime); this.bus.gain.setValueAtTime(0.0001, c.currentTime); this.bus.gain.exponentialRampToValueAtTime(0.5, c.currentTime + 1.5);
+    this.step = 0; this.next = c.currentTime + 0.1;
+    clearInterval(this.timer); this.timer = setInterval(() => this.tick(), 30);
+  },
+  stop() {
+    if (!this.on || !Audio.ctx) return; this.on = false; const c = Audio.ctx;
+    this.bus.gain.cancelScheduledValues(c.currentTime); this.bus.gain.setValueAtTime(this.bus.gain.value || 0.5, c.currentTime); this.bus.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.6);
+    setTimeout(() => { if (!this.on) clearInterval(this.timer); }, 700);
+  },
+  hz: (m) => 440 * Math.pow(2, (m - 69) / 12),
+  tick() {
+    const c = Audio.ctx; if (!c) return;
+    const s16 = 60 / this.BPM / 4;
+    while (this.next < c.currentTime + 0.15) { this.sched(this.step, this.next); this.next += s16; this.step++; }
+  },
+  sched(st, t) {
+    const bar = Math.floor(st / 16) % 4, i16 = st % 16;
+    if (i16 === 0) { for (const m of this.CH[bar]) this.pad(m, t, 60 / this.BPM * 4); this.bass(this.CH[bar][0] - 12, t); }
+    if (i16 === 8) this.bass(this.CH[bar][0] - 12 + (bar === 3 ? 7 : 0), t);
+    if (i16 % 2 === 0) { const m = this.MEL[(Math.floor(st / 64) % 2 ? (bar + 2) % 4 : bar)][i16 / 2]; if (m > 0 && !(Math.floor(st / 128) % 2 && i16 % 4)) this.pluck(m, t); }
+    const d = this.DRUM[i16]; if (d === 'D') this.dum(t); else if (d === 't') this.tak(t, i16 % 4 === 3 ? 0.5 : 0.8);
+  },
+  env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); },
+  pad(m, t, dur) {
+    const c = Audio.ctx, g = c.createGain(), f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+    for (const det of [-7, 7]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = this.hz(m); o.detune.value = det; o.connect(f); o.start(t); o.stop(t + dur + 0.1); }
+    f.connect(g); g.connect(this.bus); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.028, t + 0.6); g.gain.setValueAtTime(0.028, t + dur - 0.5); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05);
+  },
+  bass(m, t) { const c = Audio.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.value = this.hz(m); o.connect(g); g.connect(this.bus); this.env(g, t, 0.01, 0.16, 0.5); o.start(t); o.stop(t + 0.6); },
+  pluck(m, t) {
+    const c = Audio.ctx, o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter();
+    o.type = 'triangle'; o2.type = 'sine'; o.frequency.value = this.hz(m); o2.frequency.value = this.hz(m + 12);
+    f.type = 'lowpass'; f.frequency.setValueAtTime(3500, t); f.frequency.exponentialRampToValueAtTime(700, t + 0.3);
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(this.bus); g.connect(this.send); this.env(g, t, 0.005, 0.11, 0.45); o.start(t); o2.start(t); o.stop(t + 0.5); o2.stop(t + 0.5);
+  },
+  dum(t) { const c = Audio.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.25); o.connect(g); g.connect(this.bus); this.env(g, t, 0.004, 0.42, 0.32); o.start(t); o.stop(t + 0.4); },
+  tak(t, v) {
+    const c = Audio.ctx, s = c.createBufferSource(); s.buffer = Audio.noise; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2600; f.Q.value = 1.4;
+    const g = c.createGain(); s.connect(f); f.connect(g); g.connect(this.bus); this.env(g, t, 0.002, 0.16 * v, 0.07); s.start(t, Math.random()); s.stop(t + 0.12);
+  },
+};
+
 function haptic(kind) {
   try { if (TG && TG.HapticFeedback) { kind === 'light' ? TG.HapticFeedback.impactOccurred('light') : kind === 'ok' ? TG.HapticFeedback.notificationOccurred('success') : TG.HapticFeedback.impactOccurred('heavy'); } else if (navigator.vibrate) navigator.vibrate(kind === 'light' ? 8 : 25); } catch (e) {}
 }
@@ -645,8 +705,8 @@ function setupRace() {
   player = makeCar(CAR_DEFS[carChoice], true);
   const bots = BOT_DEFS.slice().sort(() => R() - 0.5).slice(0, 5);
   const grid = [...bots.map((b) => makeCar(b, false)), player]; // player starts last-ish
-  // move player to 5th of 6 (2 behind... feels fair & exciting)
-  grid.splice(4, 0, grid.pop());
+
+  // player starts at the back: more overtaking, and no bot sits between the camera and the car
   grid.forEach((c, k) => {
     const row = Math.floor(k / 2), col = k % 2;
     const s = L - 8 - row * 9 - col * 3; const i = Math.floor(s / STEP) % N;
@@ -841,18 +901,19 @@ function updateCamera(dt) {
   const fx = Math.sin(ha), fz = Math.cos(ha);
   const k = clamp(c.speed / MAXV, 0, 1.4);
   const portrait = camera.aspect < 0.8;
-  const back = (portrait ? 6.6 : 8.2) + k * 1.6, up = (portrait ? 3.0 : 3.3) + k * 0.4;
+  const back = (portrait ? 8.4 : 8.2) + k * 1.6, up = (portrait ? 4.3 : 3.3) + k * 0.5;
   camPos.set(c.x - fx * back, up, c.z - fz * back);
   if (!camInit) { camera.position.copy(camPos); camInit = true; }
   camera.position.x = damp(camera.position.x, camPos.x, 9, dt);
   camera.position.z = damp(camera.position.z, camPos.z, 9, dt);
   camera.position.y = damp(camera.position.y, camPos.y, 5, dt);
-  camLook.set(c.x + fx * 6, 1.25, c.z + fz * 6);
+  const ahead = portrait ? 11 : 6;
+  camLook.set(c.x + fx * ahead, portrait ? 0.6 : 1.25, c.z + fz * ahead);
   camera.lookAt(camLook);
   if (shake > 0) { camera.position.x += (Math.random() - 0.5) * shake * 0.6; camera.position.y += (Math.random() - 0.5) * shake * 0.4; shake = Math.max(0, shake - dt * 2.5); }
   camera.rotateZ(-c.steer * 0.025 * k);
   const boosting = c.boostT > 0 || c.nitroOn;
-  camera.fov = damp(camera.fov, (portrait ? 72 : 60) + k * 12 + (boosting ? 9 : 0), 4, dt); camera.updateProjectionMatrix();
+  camera.fov = damp(camera.fov, (portrait ? 76 : 60) + k * 10 + (boosting ? 9 : 0), 4, dt); camera.updateProjectionMatrix();
 }
 
 // speed lines overlay (2D)
@@ -959,6 +1020,7 @@ function showMenu() {
   $('menu').classList.remove('hide'); $('hud').classList.add('hide'); $('touch').classList.add('hide'); $('result').classList.add('hide'); $('pause').classList.add('hide');
   setupRace();
   renderBest();
+  Music.play();
   if (TG && TG.BackButton) { try { TG.BackButton.hide(); } catch (e) {} }
 }
 function renderBest() {
@@ -966,7 +1028,7 @@ function renderBest() {
   $('bestTxt').textContent = b ? `Rekordingiz (${DIFF[diff].name}): ${fmtT(b.t)} · ${b.p}-o'rin` : '';
 }
 function startRace() {
-  Audio.init(); Audio.ctx && Audio.ctx.resume();
+  Audio.init(); Audio.ctx && Audio.ctx.resume(); Music.stop();
   setupRace();
   state = 'count'; countT = 3.6; lastCount = 0; camInit = false; lastPos = 0;
   $('menu').classList.add('hide'); $('result').classList.add('hide'); $('pause').classList.add('hide');
@@ -989,6 +1051,12 @@ function showResult(pos) {
   const better = !old || pos < old.p || (pos === old.p && player.finishTime < old.t);
   $('rBest').classList.toggle('hide', !better);
   if (better) store.set(key, { t: player.finishTime, p: pos });
+  const hist = store.get('history', []);
+  hist.unshift({ d: Date.now(), diff, p: pos, t: +player.finishTime.toFixed(2), l: +player.best.toFixed(2), car: carChoice });
+  store.set('history', hist.slice(0, 30));
+  const tot = store.get('totals', { n: 0, w: 0, pod: 0, bl: null });
+  tot.n++; if (pos === 1) tot.w++; if (pos <= 3) tot.pod++; if (!tot.bl || player.best < tot.bl) tot.bl = +player.best.toFixed(2);
+  store.set('totals', tot);
   const st = standings(); const rows = $('rRows'); rows.innerHTML = '';
   st.forEach((c, k) => {
     const r = document.createElement('div'); r.className = 'row' + (c.isPlayer ? ' me' : '');
@@ -997,12 +1065,27 @@ function showResult(pos) {
     rows.appendChild(r);
   });
   $('result').classList.remove('hide');
+  Music.play();
 }
 function pause(on) {
   if (on && (state === 'race' || state === 'count')) { pausedFrom = state; state = 'paused'; $('pause').classList.remove('hide'); Audio.engine(0, 1, false, false); Audio.skid(0); }
   else if (!on && state === 'paused') { state = pausedFrom; $('pause').classList.add('hide'); }
 }
 let pausedFrom = 'race';
+
+function showStats() {
+  const tot = store.get('totals', { n: 0, w: 0, pod: 0, bl: null });
+  $('sTiles').innerHTML = [['Poyga', tot.n], ["G'alaba", tot.w], ['Shohsupa', tot.pod], ['Eng tez aylana', tot.bl ? fmtT(tot.bl) : '—']]
+    .map(([a, b]) => `<div><b style="${String(b).length > 4 ? 'font-size:14px;line-height:1.7' : ''}">${b}</b><small>${a}</small></div>`).join('');
+  $('sBest').innerHTML = DIFF.map((d, i) => { const b = store.get('best' + i, null);
+    return `<div class="row"><span class="medal">${b ? (b.p === 1 ? '🥇' : b.p === 2 ? '🥈' : b.p === 3 ? '🥉' : '🏁') : '·'}</span><span>${d.name}</span><span class="t">${b ? b.p + "-o'rin · " + fmtT(b.t) : 'hali yo\'q'}</span></div>`; }).join('');
+  const hist = store.get('history', []);
+  $('sHist').innerHTML = hist.length ? hist.slice(0, 10).map((h) => { const dt = new Date(h.d);
+    const pad = (n) => String(n).padStart(2, '0'); const when = pad(dt.getDate()) + '.' + pad(dt.getMonth() + 1) + ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+    return `<div class="row${h.p === 1 ? ' me' : ''}"><span class="n">${h.p}</span><span class="d" style="background:${CAR_DEFS[h.car] ? CAR_DEFS[h.car].body : '#fff'}"></span><span>${DIFF[h.diff].name} <small style="color:var(--ink2);font-weight:500">· ${when}</small></span><span class="t">${fmtT(h.t)}</span></div>`; }).join('')
+    : '<div class="empty">Hali poyga yo\'q. Birinchi poygani boshlang!</div>';
+  $('stats').classList.remove('hide');
+}
 
 // ---------------------------------------------------------------- menu ui
 {
@@ -1018,6 +1101,8 @@ let pausedFrom = 'race';
     b.onclick = () => { diff = +b.dataset.d; store.set('diff', diff); [...$('diff').children].forEach((c) => c.classList.toggle('on', c === b)); renderBest(); haptic('light'); };
   });
   $('startBtn').onclick = startRace;
+  $('statsBtn').onclick = () => { showStats(); haptic('light'); };
+  $('sClose').onclick = () => $('stats').classList.add('hide');
   $('rAgain').onclick = startRace;
   $('rMenu').onclick = showMenu;
   $('pauseBtn').onclick = () => pause(true);
@@ -1025,7 +1110,10 @@ let pausedFrom = 'race';
   $('restartBtn').onclick = startRace;
   $('quitBtn').onclick = showMenu;
   const sb = $('soundBtn'); const sync = () => (sb.textContent = Audio.on ? '🔊' : '🔇'); sync();
-  sb.onclick = () => { Audio.mute(!Audio.on); sync(); };
+  sb.onclick = (e) => { e.stopPropagation(); Audio.mute(!Audio.on); sync(); if (Audio.on && state === 'menu') Music.play(); };
+  // browsers allow sound only after the first tap: start the menu music then
+  const unlock = () => { if (state === 'menu' && Audio.on) { Audio.init(); Audio.ctx && Audio.ctx.resume(); Music.play(); } };
+  addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
   if (TG) { $('backLink').href = '../'; try { TG.BackButton.onClick(() => { if (state === 'race' || state === 'count') pause(true); else if (state === 'paused') showMenu(); }); } catch (e) {} }
 }
 // keyboard
@@ -1041,20 +1129,29 @@ const touches = new Map();
 function syncTouch() {
   let l = false, r = false;
   for (const t of touches.values()) { if (t === 'l') l = true; if (t === 'r') r = true; }
-  input.l = l; input.r = r; input.b = l && r;
-  $('tzL').classList.toggle('on', l); $('tzR').classList.toggle('on', r);
+  input.l = l; input.r = r; input.b = (l && r) || !!input.tb;
+  $('tzL').classList.toggle('on', l); $('tzR').classList.toggle('on', r); brakeBtn.classList.toggle('on', !!input.tb);
 }
-const nitroBtn = $('nitroBtn');
+const nitroBtn = $('nitroBtn'), brakeBtn = $('brakeBtn');
 function onTouch(e) {
   if (state !== 'race' && state !== 'count') return;
   for (const t of e.changedTouches) {
     if (e.type === 'touchstart' || e.type === 'touchmove') {
-      if (t.target === nitroBtn || nitroBtn.contains(t.target)) { touches.set(t.identifier, 'n'); continue; }
-      if (t.target.closest && t.target.closest('button')) continue;
+      // buttons are decided by what the finger first touched; the rest of the screen by side
+      if (e.type === 'touchstart') {
+        const el = t.target.closest ? t.target.closest('button') : null;
+        if (el === nitroBtn) { touches.set(t.identifier, 'n'); continue; }
+        if (el === brakeBtn) { touches.set(t.identifier, 'b'); continue; }
+        if (el) continue;
+        const inside = (id) => { const r = $(id).getBoundingClientRect(); return t.clientX >= r.left - 12 && t.clientX <= r.right + 12 && t.clientY >= r.top - 12 && t.clientY <= r.bottom + 12; };
+        if (inside('tzL')) { touches.set(t.identifier, 'l'); continue; }
+        if (inside('tzR')) { touches.set(t.identifier, 'r'); continue; }
+      } else { const cur = touches.get(t.identifier); if (cur === 'n' || cur === 'b' || cur === undefined) continue; }
       touches.set(t.identifier, t.clientX < innerWidth / 2 ? 'l' : 'r');
     } else touches.delete(t.identifier);
   }
   input.n = [...touches.values()].includes('n');
+  input.tb = [...touches.values()].includes('b');
   syncTouch();
   if (e.cancelable && !(e.target.closest && e.target.closest('#pauseBtn'))) e.preventDefault();
 }
@@ -1096,7 +1193,11 @@ function update(dt) {
           if (c.isPlayer && state === 'race' && !AUTO) {
             const s = (input.l ? 1 : 0) - (input.r ? 1 : 0);
             ctl = { steer: -s, gas: !input.b, brake: input.b, nitro: input.n };
-            // gentle assist: keep away from walls on touch
+            // touch assist: with no steering input the car gently follows the road direction
+            if (isTouch && s === 0) {
+              const da = wrapA(Math.atan2(TX[c.idx], TZ[c.idx]) - c.h);
+              if (Math.abs(da) < 0.7) ctl.steer = clamp(-da * 1.6 + c.d / HW * 0.25 * Math.sign(Math.cos(da)), -0.5, 0.5);
+            }
           } else ctl = botControl(c, h);
           stepCar(c, h, ctl);
         }

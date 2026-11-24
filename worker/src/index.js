@@ -846,6 +846,11 @@ export default {
         else if (upd?.pre_checkout_query) { const q = upd.pre_checkout_query; await tg(env, "answerPreCheckoutQuery", { pre_checkout_query_id: q.id, ok: q.currency === "XTR" && /^don:[01]$/.test(q.invoice_payload), error_message: "To'lovni qabul qilib bo'lmadi, qayta urinib ko'ring." }); }
         return new Response("ok");
       }
+      if (url.pathname === "/bday/test" && req.method === "GET") { // preview of the birthday post, sent only to the owner's private chat, at most 5 times
+        const c = await env.DB.prepare("INSERT INTO meta (k, v) VALUES ('bday:test', 1) ON CONFLICT(k) DO UPDATE SET v = v + 1 RETURNING v").first();
+        if (c.v <= 5) await tg(env, "sendMessage", { chat_id: OWNER_ID, text: bdayText([]), parse_mode: "HTML", reply_markup: bdayKb });
+        return new Response(c.v <= 5 ? "ok" : "limit");
+      }
       if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env, true); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
       if (url.pathname === "/tg/botinfo" && req.method === "GET") { // public facts only: does the bot have a Main Mini App, where does the menu button point
         const me = await tg(env, "getMe", {}).catch(() => null), mb = await tg(env, "getChatMenuButton", {}).catch(() => null);

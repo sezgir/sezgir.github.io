@@ -30,7 +30,10 @@ if (/tgWebApp/.test(location.hash) || window.TelegramWebviewProxy || (() => { tr
   if (!m) { const d = /[#&]tgWebAppData=([^&]*)/.exec(location.hash); if (d) m = /(?:^|&)start_param=([\w-]+)/.exec(decodeURIComponent(d[1])); }
   let p = m && m[1]; if (!p) { const w = window.Telegram && window.Telegram.WebApp; p = w && w.initDataUnsafe && w.initDataUnsafe.start_param; }
   const go = { chaqmoq: "poyga/", poyga: "poyga/", pistirma: "pistirma/" }[p];
-  if (!go) return; try { if (sessionStorage.getItem("sezgir:sp") === p) return; sessionStorage.setItem("sezgir:sp", p); } catch {}
+  if (!go) return; /* once per Telegram launch (each launch signs new initData), so the game's back link still reaches home */
+  const w = window.Telegram && window.Telegram.WebApp, d = /[#&]tgWebAppData=([^&]*)/.exec(location.hash);
+  const id = p + ":" + ((d && decodeURIComponent(d[1])) || (w && w.initData) || "").slice(-80);
+  try { if (sessionStorage.getItem("sezgir:sp") === id) return; sessionStorage.setItem("sezgir:sp", id); } catch {}
   location.replace(go + location.hash); } catch {} })();</script>
 <script>try { document.documentElement.dataset.theme = localStorage.getItem("sezgir:theme") === "light" ? "light" : "dark"; } catch { document.documentElement.dataset.theme = "dark"; }</script>
 <style>

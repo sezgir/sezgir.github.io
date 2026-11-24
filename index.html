@@ -26,8 +26,12 @@
 <script>/* inside Telegram (Mini App) only: load Telegram's SDK before anything touches the URL hash */
 if (/tgWebApp/.test(location.hash) || window.TelegramWebviewProxy || (() => { try { return !!sessionStorage.getItem("__telegram__initParams"); } catch { return false; } })()) document.write('<script src="https://telegram.org/js/telegram-web-app.js"><\/script>');</script>
 <script>/* bot links ?startapp=chaqmoq / ?startapp=pistirma open the game straight away */
-(() => { try { const m = /[#&]tgWebAppStartParam=([\w-]+)/.exec(location.hash) || /[?&]startapp=([\w-]+)/.exec(location.search); const go = { chaqmoq: "poyga/", poyga: "poyga/", pistirma: "pistirma/" }[m && m[1]];
-  if (go) location.replace(go + location.hash); } catch {} })();</script>
+(() => { try { const src = location.search + "&" + location.hash; let m = /[?#&]tgWebAppStartParam=([\w-]+)/.exec(src) || /[?&]startapp=([\w-]+)/.exec(location.search);
+  if (!m) { const d = /[#&]tgWebAppData=([^&]*)/.exec(location.hash); if (d) m = /(?:^|&)start_param=([\w-]+)/.exec(decodeURIComponent(d[1])); }
+  let p = m && m[1]; if (!p) { const w = window.Telegram && window.Telegram.WebApp; p = w && w.initDataUnsafe && w.initDataUnsafe.start_param; }
+  const go = { chaqmoq: "poyga/", poyga: "poyga/", pistirma: "pistirma/" }[p];
+  if (!go) return; try { if (sessionStorage.getItem("sezgir:sp") === p) return; sessionStorage.setItem("sezgir:sp", p); } catch {}
+  location.replace(go + location.hash); } catch {} })();</script>
 <script>try { document.documentElement.dataset.theme = localStorage.getItem("sezgir:theme") === "light" ? "light" : "dark"; } catch { document.documentElement.dataset.theme = "dark"; }</script>
 <style>
 /* Layout: one quiet centred column; the stage is the only framed object; everything else is type and space */

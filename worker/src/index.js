@@ -145,6 +145,7 @@ async function onMessage(env, msg) {
   if (cmd === "/start" && /^dg-?\d{1,20}$/.test(arg || "")) { const gid = Number(arg.slice(2)); await autoJoin(env, gid, msg.from); await env.DB.prepare("UPDATE tg_users SET active = 1 WHERE chat_id = ?").bind(chat).run(); return duelPicker(env, chat, chat, gid); }
   if (cmd === "/start" && arg && /^g-?\d{1,20}$/.test(arg)) return joinGroup(env, chat, name, u, Number(arg.slice(1)));
   if (cmd === "/start" && arg && /^v\d{1,5}(_\d{1,3}){5}(_[A-Za-z0-9_-]+)?$/.test(arg)) return openChallenge(env, chat, name, u, arg);
+  if (cmd === "/start" && arg === "games") return tg(env, "sendMessage", { chat_id: chat, text: GAMES_TEXT, parse_mode: "HTML", reply_markup: gamesBtns() });
   if (cmd === "/start" && OPEN_GAME[arg]) { const G = OPEN_GAME[arg]; // group promo link: a web_app button opens the game itself (private chat only)
     return tg(env, "sendMessage", { chat_id: chat, text: G.text, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: G.btn, style: "success", web_app: { url: SITE + G.path } }]] } }); }
   if (cmd === "/start") {
@@ -180,10 +181,10 @@ async function remind(env, evening) {
     const { streak, todayRec } = await streakOf(env, u.client);
     let text;
     if (!evening && todayRec != null) continue; // already played after midnight
-    if (!evening) text = `☀️ Sezgir #${no} tayyor. Bugungi beshta test sizni kutmoqda.${streak ? `\nSeriyangiz: ${streak} kun 🔥` : ""}${newsOf(day) ? `\n\n${newsOf(day)}` : ""}`;
+    if (!evening) text = `☀️ Sezgir #${no} tayyor. Bugungi beshta test sizni kutmoqda.${streak ? `\nSeriyangiz: ${streak} kun 🔥` : ""}${newsOf(day) ? `\n\n${newsOf(day)}` : ""}\n\n${DUEL_LINE}`;
     else if (todayRec == null && streak > 0) text = `Bugun hali o'ynamadingiz. ${streak} kunlik seriyangiz yarim tunda uziladi 🔥`;
     if (!text) continue;
-    const r = await tg(env, "sendMessage", { chat_id: u.chat_id, text: evening ? text : esc(text).replace(/&lt;(\/?b)&gt;/g, "<$1>"), parse_mode: evening ? undefined : "HTML", reply_markup: playBtn(u.client) });
+    const r = await tg(env, "sendMessage", { chat_id: u.chat_id, text: evening ? text : esc(text).replace(/&lt;(\/?b)&gt;/g, "<$1>"), parse_mode: evening ? undefined : "HTML", reply_markup: evening ? playBtn(u.client) : morningBtns(u.client) });
     if (!r.ok && r.error_code === 403) await env.DB.prepare("UPDATE tg_users SET active = 0 WHERE chat_id = ?").bind(u.chat_id).run();
     await new Promise(res => setTimeout(res, 40)); // stay under Telegram's ~30 msg/s
   }
@@ -453,6 +454,10 @@ const OPEN_GAME = { // t.me/<bot>?start=chaqmoq: works even when the bot has no 
   chaqmoq: { path: "poyga/", btn: "🏎 Chaqmoqni ochish", text: "<b>🏎 Chaqmoq</b>: 3D mashina poygasi. Botlarni quvib o'ting!" },
   pistirma: { path: "pistirma/", btn: "🎯 Pistirmani ochish", text: "<b>🎯 Pistirma</b>: tungi otishma, botlarga qarshi." },
 };
+const DUEL_LINE = "⚔️ <b>Do'stingizni duelga chaqiring</b>: ikkalangizga bir xil, yangi jumboq beriladi.";
+const GAMES_TEXT = "<b>🎮 Boshqa o'yinlar</b>\n\n" + Object.values(OPEN_GAME).map(G => G.text).join("\n");
+const gamesBtns = () => ({ inline_keyboard: [Object.values(OPEN_GAME).map((G, i) => ({ text: G.btn, style: i ? "primary" : "success", web_app: { url: SITE + G.path } }))] });
+const morningBtns = client => ({ inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", web_app: { url: `${SITE}?cid=${client}` } }], [{ text: "⚔️ Duelga chaqirish", style: "primary", callback_data: "go:duel" }, { text: "🎮 Boshqa o'yinlar", callback_data: "go:games" }]] });
 const PROMO = {
   key: "promo:games-2026-11", at: Date.parse("2026-11-25T08:00:00Z"), // cron fallback 13:00 Tashkent; /promo/go sends right away
   match: /синфдош|sinfdosh/i,
@@ -529,7 +534,9 @@ async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note i
     const text = b.played.length // some already played after midnight: show the board so far
       ? `<b>☀️ Sezgir #${puzzleNo(day)} · hozirgi reyting</b>${news}\n\n${boardLines(b.played.slice(0, 10)).map(esc).join("\n")}${b.played.length > 10 ? `\n… yana ${b.played.length - 10} kishi` : ""}\n\n<b>${b.idle.length ? `Hali o'ynamaganlar: ${b.idle.length} kishi. Kim o'zib ketadi?` : "Hamma o'ynadi!"}</b>${yest ? `\n\n${yest}` : ""}`
       : `<b>☀️ Sezgir #${puzzleNo(day)} tayyor. Bugun kim birinchi bo'ladi?</b>${news}${yest ? `\n\n${yest}` : ""}`;
-    const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", url: `https://t.me/${BOT_USER}?startapp=g${g.chat_id}` }]] } });
+    const duel = `\n\n⚔️ <b>Guruhdoshingizni duelga chaqiring</b>: ikkalangizga bir xil, yangi jumboq beriladi.`;
+    const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: text + duel, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", url: `https://t.me/${BOT_USER}?startapp=g${g.chat_id}` }],
+      [{ text: "⚔️ Duelga chaqirish", style: "primary", url: `https://t.me/${BOT_USER}?start=dg${g.chat_id}` }, { text: "🎮 Boshqa o'yinlar", url: `https://t.me/${BOT_USER}?start=games` }]] } });
     if (!r.ok && (r.error_code === 403 || r.error_code === 400)) await env.DB.prepare("UPDATE tg_groups SET active = 0 WHERE chat_id = ?").bind(g.chat_id).run();
     await new Promise(res => setTimeout(res, 40));
   }
@@ -595,6 +602,9 @@ async function onCallback(env, q) {
   if (k === "da" || k === "dr") return duelAnswer(env, q, from, x, k === "da");
   if (k === "fb") return fbRate(env, q, from, x);
   if (k === "bd") return bdayTap(env, q);
+  if (k === "go" && q.message?.chat?.type === "private") { await answerCb(env, q, "");
+    if (x === "duel") return duelPicker(env, from, from, null);
+    if (x === "games") return tg(env, "sendMessage", { chat_id: from, text: GAMES_TEXT, parse_mode: "HTML", reply_markup: gamesBtns() }); }
   await answerCb(env, q, "");
 }
 
@@ -961,6 +971,6 @@ export default {
     if (event.cron === "0 * * * *") ctx.waitUntil(duelSweep(env).catch(() => {}).then(() => duelRemind(env)).catch(() => {}).then(() => fbRemind(env)).catch(() => {}).then(() => sendPromo(env)).catch(() => {}).then(() => sendBday(env)).catch(() => {})); // hourly: duel expiry + reminders
     else if (event.cron === "0 16 * * *") ctx.waitUntil(Promise.all([postBoards(env), watchMisses(env).catch(() => {})]));
     else if (event.cron === "0 4 * * *") ctx.waitUntil(Promise.all([remind(env, false), morningGroups(env)]));
-    else if (event.cron === "0 14 * * *") ctx.waitUntil(Promise.all([remind(env, true), duelNudge(env).catch(() => {})]));
+    else if (event.cron === "0 14 * * *") ctx.waitUntil(remind(env, true)); // the 19:00 group duel nudge was dropped (owner, 2026-11-25): the 09:00 messages invite to duels instead
   },
 };

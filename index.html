@@ -597,10 +597,10 @@ const TESTS = [
   reveal(p, r) { clear(); this.at(r.s); this.ray(r.b, css("--muted")); this.ray(r.b + r.s * r.u, css("--ink")); this.ray(r.b + r.s * p.a, css("--good"), 8, [14, 10]); this.arc(r.b, r.s, p.a, css("--good"), 64); this.vertex();
     text(`${Math.round(r.err)}° farq`, 400, 40, { size: 36 }); legend([[`asl burchak · ${p.a}°`, css("--good")], [`siz yasagan · ${Math.round(r.u)}°`, css("--ink")]], 470); } },
 
-{ id: "non", name: "Non bo'lish", short: "Ulush", color: "--gold", sigma: .05,
+{ id: "non", name: "Non bo'lish", short: "Ulush", color: "--gold", sigma: .07,
   about: "Nonning so'ralgan ulushini (masalan 3/8 yoki 35%) bir kesishda ajratasiz.",
   steps: ["Ekranda qancha ulush kesish kerakligi yoziladi, masalan 3/8.", "Kesish tepadagi chiziqdan boshlanadi va soat mili bo'ylab boradi.", "Nonni bosib turing, pichoqni suring va kerakli joyda qo'yib yuboring."],
-  rule: "5% farq = 50 ball (butun non = 100%)",
+  rule: "7% farq = 50 ball (butun non = 100%)",
   gen(r) { const fr = [[1, 3], [2, 3], [3, 8], [5, 8], [1, 6], [5, 6], [2, 5], [3, 5], [1, 5], [4, 5], [5, 12], [7, 12], [3, 10], [7, 10]]; if (r.next() < .4) { let pct; do { pct = r.int(12, 88); } while (pct % 25 === 0); return { f: pct / 100, label: `${pct}%` }; } const [a, b] = r.pick(fr); return { f: a / b, label: `${a}/${b}` }; },
   variants: { classic: { name: "Oddiy" }, burilgan: { name: "Burilgan", about: "Bugun kesish chizig'i tepada emas, boshqa joyda turibdi. O'sha chiziqdan boshlab, soat mili bo'ylab kerakli ulushni kesing." }, qoldir: { name: "Qoldiring", about: "Bugun teskarisi: nonning so'ralgan qismi qolishi kerak. Kesib olingan bo'lak qolgan qismdan qolgani bo'ladi." } },
   vary(r, p) { if (p.v === "burilgan") p.a0 = r.pick([.6, .9, 1.3, 2.2, 2.6, 3.1, 3.6, 4.1, 4.6, 5.3]); return p; },

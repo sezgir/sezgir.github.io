@@ -957,6 +957,11 @@ export default {
         const b = await req.json().catch(() => null); if (!b) return json({ error: "bad body" }, 400, h);
         return json(await duelApi(env, url.pathname, b, ctx), 200, h);
       }
+      if (url.pathname === "/myplays" && req.method === "GET") { // all past plays of a player: a fresh Telegram webview or another device refills the archive
+        const client = url.searchParams.get("client") || ""; if (!CLIENT.test(client)) return json({ error: "bad query" }, 400, h);
+        const r = await env.DB.prepare("SELECT date, total, scores FROM plays WHERE client = ? ORDER BY date DESC LIMIT 400").bind(client).all();
+        return json({ plays: r.results.map(x => ({ date: x.date, total: x.total, scores: JSON.parse(x.scores) })) }, 200, { ...h, "Cache-Control": "no-store" });
+      }
       if (url.pathname === "/myplay" && req.method === "GET") { // lets a second device (or a fresh Telegram webview) show today's result instead of a new game
         const client = url.searchParams.get("client") || "", date = url.searchParams.get("date") || "";
         if (!CLIENT.test(client) || !DATE.test(date)) return json({ error: "bad query" }, 400, h);

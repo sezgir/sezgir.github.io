@@ -1073,10 +1073,14 @@ readChallenge();
   if (T && T.initData && API) { const r = await Promise.race([api("/tg/whoami", { initData: T.initData, client: clientId() }), new Promise(ok => setTimeout(ok, 1500))]);
     if (r && /^[a-z0-9]{16,40}$/.test(r.client) && r.client !== clientId()) { store.set("client", r.client); const h = store.get("history", {}); for (const k of Object.keys(h)) h[k].sent = false; store.set("history", h); } }
   // played today on another device / webview? pull the result so home shows it instead of a fresh game
-  if (T && T.initData && API && !store.get("history", {})[today]) { const p = await Promise.race([api(`/myplay?client=${clientId()}&date=${today}`), new Promise(ok => setTimeout(ok, 1500))]);
-    if (p && Array.isArray(p.scores) && p.scores.length === TESTS.length && !store.get("history", {})[today]) { const params = dailyParams(today);
-      const rec = { date: today, no: todayNo, total: p.total, results: TESTS.map((t, i) => ({ id: t.id, score: p.scores[i], human: "Boshqa qurilmada o'ynalgan.", v: params[i].v })), late: false, sent: true };
-      const h = store.get("history", {}); h[today] = rec; store.set("history", h); } }
+  // results saved on the server but missing here (new device, fresh Telegram webview, cleared storage) come back into history and the archive
+  if (API) { const p = await Promise.race([api(`/myplays?client=${clientId()}`), new Promise(ok => setTimeout(ok, 2000))]);
+    if (p && Array.isArray(p.plays)) { const h = store.get("history", {}); let added = 0;
+      for (const x of p.plays) { if (h[x.date] || !/^\d{4}-\d{2}-\d{2}$/.test(x.date) || x.date > today || !Array.isArray(x.scores) || x.scores.length !== TESTS.length) continue;
+        const params = dailyParams(x.date), no = puzzleNo(x.date);
+        const idAt = i => i === 2 && x.date < "2026-11-19" ? "atlas" : i === 3 && x.date < "2026-11-21" ? "doira" : TESTS[i].id; // retired tests kept their slot
+        h[x.date] = { date: x.date, no, total: x.total, results: TESTS.map((t, i) => ({ id: idAt(i), score: x.scores[i], human: "Boshqa qurilmada o'ynalgan.", v: params[i].v })), late: false, sent: true }; added++; }
+      if (added) store.set("history", h); } }
   resendPending(); // a play whose send failed earlier (bad network, app closed too fast) goes out now
   if (DUEL_ID && API) duelPage(); else if (OPEN_SUPPORT && API && BOT) supportPage(home); else home();
 })();

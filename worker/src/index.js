@@ -858,6 +858,13 @@ export default {
         else if (upd?.pre_checkout_query) { const q = upd.pre_checkout_query; await tg(env, "answerPreCheckoutQuery", { pre_checkout_query_id: q.id, ok: q.currency === "XTR" && /^don:[01]$/.test(q.invoice_payload), error_message: "To'lovni qabul qilib bo'lmadi, qayta urinib ko'ring." }); }
         return new Response("ok");
       }
+      if (url.pathname === "/bday/sync" && req.method === "GET") { // re-render the group birthday post from stored taps; returns Telegram's answer (for debugging)
+        const chat = -1001435443989, mid = 17134, pre = `${BDAY.key}:${chat}:${mid}:`;
+        const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;
+        const th = rows.find(r => r.k === pre + "thanks"), names = rows.filter(r => r !== th).map(r => JSON.parse(r.data));
+        const r = await tg(env, "editMessageText", { chat_id: chat, message_id: mid, text: bdayText(names, th ? JSON.parse(th.data) : ""), parse_mode: "HTML", reply_markup: bdayKb });
+        return json({ names: names.length, ok: r.ok, error: r.description || null }, 200, h);
+      }
       if (url.pathname === "/bday/test" && req.method === "GET") { // preview of the birthday post, sent only to the owner's private chat, at most 5 times
         const c = await env.DB.prepare("INSERT INTO meta (k, v) VALUES ('bday:test', 1) ON CONFLICT(k) DO UPDATE SET v = v + 1 RETURNING v").first();
         if (c.v <= 10) await tg(env, "sendMessage", { chat_id: OWNER_ID, text: bdayText([]), parse_mode: "HTML", reply_markup: bdayKb });

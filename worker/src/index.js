@@ -500,12 +500,12 @@ async function bdayTap(env, q) {
   const test = m.chat.id === OWNER_ID && u.id === OWNER_ID; // owner's private preview: 1st tap lights a candle, 2nd tap blows them out
   const hero = (u.username || "").toLowerCase() === BDAY.user || u.id === BDAY.uid || (test && !!await env.DB.prepare("SELECT 1 FROM snap WHERE k = ?").bind(pre + u.id).first());
   if (hero && !test) { // the birthday person can blow only once all candles are lit
-    const c = (await env.DB.prepare("SELECT COUNT(*) AS c FROM snap WHERE k LIKE ? AND k <> ?").bind(pre + "%", pre + "thanks").first()).c;
+    const c = (await env.DB.prepare("SELECT COUNT(*) AS c FROM snap WHERE k > ? AND k < ? AND k <> ?").bind(pre, pre + "~", pre + "thanks").first()).c;
     if (c < BDAY.candles) return answerCb(env, q, `Hali ${BDAY.candles - c} ta sham yonmagan, sinfdoshlar tabriklashini kuting 😉`, true);
   }
   const ins = await env.DB.prepare("INSERT OR IGNORE INTO snap (k, at, data) VALUES (?, ?, ?)").bind(pre + (hero ? "thanks" : u.id), Date.now(), JSON.stringify(name)).run();
   if (!ins.meta?.changes) return answerCb(env, q, hero ? "🌬 Shamlar allaqachon o'chgan. Tug'ilgan kuningiz muborak! 🎂" : "Siz allaqachon tabrikladingiz 🙂 Rahmat!");
-  const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;
+  const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k > ? AND k < ? ORDER BY at").bind(pre, pre + "~").all()).results;
   const names = rows.filter(r => r.k !== pre + "thanks").map(r => JSON.parse(r.data)), n = names.length, th = rows.find(r => r.k === pre + "thanks");
   if (hero) await answerCb(env, q, "🌬 Puff! Shamlar o'chdi. Tilagingiz ushalsin, tug'ilgan kuningiz muborak! 🎂", true);
   else if (th) await answerCb(env, q, "🎉 Tabrigingiz qo'shildi! Shamlar allaqachon puflandi 🌬");
@@ -860,7 +860,7 @@ export default {
       }
       if (url.pathname === "/bday/sync" && req.method === "GET") { // re-render the group birthday post from stored taps; returns Telegram's answer (for debugging)
         const chat = -1001435443989, mid = 17134, pre = `${BDAY.key}:${chat}:${mid}:`;
-        const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k LIKE ? ORDER BY at").bind(pre + "%").all()).results;
+        const rows = (await env.DB.prepare("SELECT k, data FROM snap WHERE k > ? AND k < ? ORDER BY at").bind(pre, pre + "~").all()).results;
         const th = rows.find(r => r.k === pre + "thanks"), names = rows.filter(r => r !== th).map(r => JSON.parse(r.data));
         const r = await tg(env, "editMessageText", { chat_id: chat, message_id: mid, text: bdayText(names, th ? JSON.parse(th.data) : ""), parse_mode: "HTML", reply_markup: bdayKb });
         return json({ names: names.length, ok: r.ok, error: r.description || null }, 200, h);

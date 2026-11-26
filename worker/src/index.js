@@ -555,6 +555,101 @@ async function sendBday(env, now = false) {
     if (r?.ok) await tg(env, "setMessageReaction", { chat_id: g.chat_id, message_id: r.result.message_id, reaction: [{ type: "emoji", emoji: "🎉" }] }).catch(() => {});
   }
 }
+
+// One-off "first 100 games" recap (owner-approved): every group gets its group stats, every player who played gets their own.
+// /recap/test sends both kinds only to the owner; /recap/go sends to everyone once, and only after the owner's OK is stored as meta 'recap:ok'.
+const RECAP = { key: "recap:100-2026-11", ok: "recap:ok", ketmonFrom: "2026-11-21" };
+const UZ_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+const dayUz = d => `${+d.slice(8, 10)}-${UZ_MONTHS[+d.slice(5, 7) - 1]}`;
+const TEST_UZ = ["Anor donalari", "Chillak", "Minora", "Ketmon", "Non bo'lish"];
+const avgOf = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+function testAvgs(plays) { // per-test average; slot 4 counts only Ketmon days (it was Doira before)
+  return TEST_UZ.map((name, i) => { const v = plays.filter(p => i !== 3 || p.date >= RECAP.ketmonFrom).map(p => p.scores[i] ?? 0); return { name, n: v.length, a: Math.round(avgOf(v)) }; }).filter(t => t.n);
+}
+async function recapData(env) {
+  const all = q => env.DB.prepare(q).all().then(r => r.results);
+  const [plays, users, groups, members, duels] = await Promise.all([
+    all("SELECT p.date, p.client, p.total, p.scores, u.chat_id uid FROM plays p LEFT JOIN tg_users u ON u.client = p.client ORDER BY p.date"),
+    all("SELECT chat_id, client, name, active FROM tg_users"),
+    all("SELECT chat_id, title FROM tg_groups WHERE active = 1"),
+    all("SELECT group_id, user_id FROM tg_members"),
+    all("SELECT gid, a, b, a_score, b_score FROM duels WHERE status = 'done'"),
+  ]);
+  const names = new Map(users.map(u => [u.chat_id, u.name || "O'yinchi"]));
+  const P = new Map(); // player key -> { uid, plays[] }
+  for (const p of plays) { const k = p.uid || "c:" + p.client; p.scores = JSON.parse(p.scores || "[]"); if (!P.has(k)) P.set(k, { uid: p.uid, plays: [] }); P.get(k).plays.push(p); }
+  for (const x of P.values()) { const t = x.plays.map(p => p.total); x.n = t.length; x.avg = avgOf(t); x.best = x.plays.reduce((b, p) => p.total > b.total ? p : b); }
+  const ranked = [...P.values()].filter(x => x.n >= 3).sort((a, b) => b.avg - a.avg);
+  const duel = new Map(); const dk = id => duel.get(id) || (duel.set(id, { w: 0, l: 0, d: 0 }), duel.get(id));
+  for (const d of duels) { const sa = d.a_score ?? 0, sb = d.b_score ?? 0; if (sa === sb) { dk(d.a).d++; dk(d.b).d++; } else { dk(sa > sb ? d.a : d.b).w++; dk(sa > sb ? d.b : d.a).l++; } }
+  const byDay = {}; for (const p of plays) (byDay[p.date] ||= []).push(p.total);
+  const days = Object.entries(byDay).map(([d, t]) => ({ d, a: avgOf(t) }));
+  const G = groups.map(g => {
+    const ids = new Set(members.filter(m => m.group_id === g.chat_id).map(m => m.user_id));
+    const ps = [...P.values()].filter(x => x.uid && ids.has(x.uid));
+    const gp = ps.flatMap(x => x.plays), gd = duels.filter(d => d.gid === g.chat_id);
+    return { ...g, players: ps, plays: gp, avg: avgOf(gp.map(p => p.total)), duels: gd };
+  });
+  const gRanked = G.filter(g => g.plays.length >= 5).sort((a, b) => b.avg - a.avg);
+  return { plays, names, P, ranked, duel, days, G, gRanked, puzzleDays: days.length };
+}
+function recapGroupText(R, g) {
+  const nm = uid => esc(R.names.get(uid) || "O'yinchi");
+  let t = `📊 <b>Sezgir: birinchi ${R.plays.length >= 100 ? 100 : R.plays.length} o'yin ortda!</b>\n${esc(g.title || "Guruh")} guruhining shu kungacha natijalari:\n`;
+  if (!g.plays.length) return t + "\nBu guruhda hali hech kim o'ynamadi. Birinchi bo'lib natija qo'ying! 🎯";
+  const rec = g.plays.reduce((b, p) => p.total > b.total ? p : b), loyal = [...g.players].sort((a, b) => b.n - a.n || b.avg - a.avg)[0];
+  const sharp = g.players.filter(x => x.n >= 3).sort((a, b) => b.avg - a.avg)[0], rank = R.gRanked.indexOf(g) + 1;
+  const tests = testAvgs(g.plays).sort((a, b) => b.a - a.a);
+  t += `\n🎮 <b>${g.plays.length} ta o'yin</b>, ${g.players.length} o'yinchi`;
+  t += `\n📈 Guruh o'rtachasi: <b>${Math.round(g.avg)} ball</b>${rank && R.gRanked.length > 1 ? ` · guruhlar ichida ${rank}-o'rin${rank === 1 ? " 🥇" : ""}` : ""}`;
+  t += `\n🏅 Rekord: <b>${nm(rec.uid)}</b>, ${rec.total} ball (${gradeOf(rec.total)}), ${dayUz(rec.date)}`;
+  if (loyal && loyal.n >= 2) t += `\n🔥 Eng sodiq: <b>${nm(loyal.uid)}</b>, ${loyal.n} kun o'ynadi`;
+  if (sharp && g.players.length >= 3) t += `\n🎯 Eng aniq: <b>${nm(sharp.uid)}</b>, o'rtacha ${Math.round(sharp.avg)} ball`;
+  if (g.duels.length) {
+    const w = new Map(); for (const d of g.duels) { const sa = d.a_score ?? 0, sb = d.b_score ?? 0; if (sa !== sb) { const id = sa > sb ? d.a : d.b; w.set(id, (w.get(id) || 0) + 1); } }
+    const top = [...w.entries()].sort((a, b) => b[1] - a[1])[0];
+    t += `\n⚔️ Duellar: ${g.duels.length} ta${top && top[1] >= 2 ? `, eng ko'p yutgan: <b>${nm(top[0])}</b> (${top[1]})` : ""}`;
+  }
+  if (tests.length >= 2) t += `\n🧩 Kuchli testimiz: ${tests[0].name} (${tests[0].a}), eng qiyini: ${tests.at(-1).name} (${tests.at(-1).a})`;
+  return t + "\n\n📬 Har bir o'yinchiga shaxsiy statistikasi botda yuborildi.";
+}
+function recapUserText(R, x) {
+  const raw = R.names.get(x.uid) || "", name = /\p{L}/u.test(raw) ? esc(raw) + ", m" : "M", tests = testAvgs(x.plays).sort((a, b) => b.a - a.a);
+  let t = `📊 <b>Sezgir: birinchi 100 o'yin ortda!</b>\n${name}ana shu kungacha sizning natijangiz:\n`;
+  t += `\n🎮 O'yinlar: <b>${x.n} ta</b> (${R.puzzleDays} kundan)`;
+  if (x.n > 1) t += `\n📈 O'rtacha: <b>${Math.round(x.avg)} ball</b>`;
+  t += `\n🏅 ${x.n > 1 ? "Rekord" : "Natija"}: <b>${x.best.total} ball</b> (${gradeOf(x.best.total)}), ${dayUz(x.best.date)}`;
+  if (tests.length >= 2) t += `\n💪 Kuchli testingiz: <b>${tests[0].name}</b> (o'rtacha ${tests[0].a})\n🌱 Mashq kerak: <b>${tests.at(-1).name}</b> (o'rtacha ${tests.at(-1).a})`;
+  if (x.n >= 4) { const h = Math.floor(x.n / 2), a = Math.round(avgOf(x.plays.slice(0, h).map(p => p.total))), b = Math.round(avgOf(x.plays.slice(-h).map(p => p.total))), d = b - a;
+    t += `\n${d >= 0 ? "🚀" : "📉"} Rivojlanish: dastlabki o'yinlarda ${a} → oxirgilarida ${b} (${d >= 0 ? "+" : ""}${d})`; }
+  const r = R.ranked.indexOf(x) + 1;
+  if (r && r <= Math.ceil(R.ranked.length / 2)) t += `\n🏆 Umumiy reyting: <b>${r}-o'rin</b> (${R.ranked.length} o'yinchidan)${r <= 3 ? " " + MEDALS[r - 1] : ""}`; // bottom half: no rank, only the trend
+  else if (!r) t += `\n🏆 Umumiy reytingga kirish uchun yana ${3 - x.n} ta o'yin kerak`;
+  const d = R.duel.get(x.uid); if (d) t += `\n⚔️ Duellar: ${d.w} g'alaba, ${d.l} mag'lubiyat${d.d ? `, ${d.d} durang` : ""}`;
+  return t + "\n\nBugungi jumboq sizni kutmoqda 👇";
+}
+const recapUserKb = client => ({ inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", web_app: { url: `${SITE}?cid=${client}` } }]] });
+const recapGroupKb = gid => ({ inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", url: `https://t.me/${BOT_USER}?startapp=g${gid}` }]] });
+async function recapTest(env) { // owner's preview: their personal message + the message their biggest group would get
+  const R = await recapData(env), me = [...R.P.values()].find(x => x.uid === OWNER_ID), u = await env.DB.prepare("SELECT client FROM tg_users WHERE chat_id = ?").bind(OWNER_ID).first();
+  const g = R.G.filter(g => g.players.some(x => x.uid === OWNER_ID)).sort((a, b) => b.plays.length - a.plays.length)[0] || R.G[0];
+  const out = [];
+  if (g) out.push(await tg(env, "sendMessage", { chat_id: OWNER_ID, text: recapGroupText(R, g), parse_mode: "HTML", reply_markup: recapGroupKb(g.chat_id) }));
+  if (me) out.push(await tg(env, "sendMessage", { chat_id: OWNER_ID, text: recapUserText(R, me), parse_mode: "HTML", reply_markup: recapUserKb(u?.client || "") }));
+  return out.map(r => r.ok ? "ok" : r.description);
+}
+async function sendRecap(env) {
+  if (!await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(RECAP.ok).first()) return { error: "not approved" };
+  if (await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(RECAP.key).first()) return { error: "already sent" };
+  await env.DB.prepare("INSERT INTO meta (k, v) VALUES (?, 1) ON CONFLICT(k) DO NOTHING").bind(RECAP.key).run(); // mark first: never send twice
+  const R = await recapData(env), clients = new Map((await env.DB.prepare("SELECT chat_id, client FROM tg_users WHERE active = 1").all()).results.map(u => [u.chat_id, u.client]));
+  let dm = 0, gr = 0;
+  for (const x of R.P.values()) if (x.uid && clients.has(x.uid)) {
+    const r = await tg(env, "sendMessage", { chat_id: x.uid, text: recapUserText(R, x), parse_mode: "HTML", reply_markup: recapUserKb(clients.get(x.uid)) }).catch(() => null); if (r?.ok) dm++;
+  }
+  for (const g of R.G) { const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: recapGroupText(R, g), parse_mode: "HTML", reply_markup: recapGroupKb(g.chat_id) }).catch(() => null); if (r?.ok) gr++; }
+  return { dm, groups: gr };
+}
 async function bdayTap(env, q) {
   const u = q.from || {}, m = q.message;
   if (!m) return answerCb(env, q, "🎉");
@@ -939,6 +1034,11 @@ export default {
         if (c.v <= 10) await tg(env, "sendMessage", { chat_id: OWNER_ID, text: bdayText([]), parse_mode: "HTML", reply_markup: bdayKb });
         return new Response(c.v <= 10 ? "ok" : "limit");
       }
+      if (url.pathname === "/recap/test" && req.method === "GET") { // stats recap preview, owner's private chat only, at most 10 times
+        const c = await env.DB.prepare("INSERT INTO meta (k, v) VALUES ('recap:test', 1) ON CONFLICT(k) DO UPDATE SET v = v + 1 RETURNING v").first();
+        return json(c.v <= 10 ? await recapTest(env) : { error: "limit" }, 200, h);
+      }
+      if (url.pathname === "/recap/go" && req.method === "GET") return json(await sendRecap(env), 200, h); // once ever, and only after meta 'recap:ok'
       if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env, true); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
       if (url.pathname === "/tg/botinfo" && req.method === "GET") { // public facts only: does the bot have a Main Mini App, where does the menu button point
         const me = await tg(env, "getMe", {}).catch(() => null), mb = await tg(env, "getChatMenuButton", {}).catch(() => null);

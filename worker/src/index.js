@@ -557,8 +557,11 @@ async function sendBday(env, now = false) {
 }
 
 // One-off "first 100 games" recap (owner-approved): every group gets its group stats, every player who played gets their own.
-// /recap/test sends both kinds only to the owner; /recap/go sends to everyone once, and only after the owner's OK is stored as meta 'recap:ok'.
-const RECAP = { key: "recap:100-2026-11", ok: "recap:ok", ketmonFrom: "2026-11-21" };
+// Owner's standing rule (2026-11-26): send it again after every 100 games. The hourly cron checks the play count; meta 'recap:last'
+// holds the last milestone sent (100 went out 2026-11-26), so each milestone goes out once, between 10:00 and 21:00 Tashkent.
+// /recap/test sends both kinds only to the owner; /recap/go runs the same milestone check right away.
+const RECAP = { last: "recap:last", step: 100, ketmonFrom: "2026-11-21" };
+const recapHead = R => `📊 <b>Sezgir: ${Math.floor(R.plays.length / RECAP.step) * RECAP.step || R.plays.length} ta o'yin ortda!</b>`;
 const UZ_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
 const dayUz = d => `${+d.slice(8, 10)}-${UZ_MONTHS[+d.slice(5, 7) - 1]}`;
 const TEST_UZ = ["Anor donalari", "Chillak", "Minora", "Ketmon", "Non bo'lish"];
@@ -595,7 +598,7 @@ async function recapData(env) {
 }
 function recapGroupText(R, g) {
   const nm = uid => esc(R.names.get(uid) || "O'yinchi");
-  let t = `📊 <b>Sezgir: birinchi ${R.plays.length >= 100 ? 100 : R.plays.length} o'yin ortda!</b>\n${esc(g.title || "Guruh")} guruhining shu kungacha natijalari:\n`;
+  let t = `${recapHead(R)}\n${esc(g.title || "Guruh")} guruhining shu kungacha natijalari:\n`;
   if (!g.plays.length) return t + "\nBu guruhda hali hech kim o'ynamadi. Birinchi bo'lib natija qo'ying! 🎯";
   const rec = g.plays.reduce((b, p) => p.total > b.total ? p : b), loyal = [...g.players].sort((a, b) => b.n - a.n || b.avg - a.avg)[0];
   const rank = R.gRanked.indexOf(g) + 1;
@@ -617,7 +620,7 @@ function recapGroupText(R, g) {
 }
 function recapUserText(R, x) {
   const raw = R.names.get(x.uid) || "", name = /\p{L}/u.test(raw) ? esc(raw) + ", m" : "M", tests = testAvgs(x.plays).sort((a, b) => b.a - a.a);
-  let t = `📊 <b>Sezgir: birinchi 100 o'yin ortda!</b>\n${name}ana shu kungacha sizning natijangiz:\n`;
+  let t = `${recapHead(R)}\n${name}ana shu kungacha sizning natijangiz:\n`;
   t += `\n🎮 O'yinlar: <b>${x.n} ta</b> (${R.puzzleDays} kundan)`;
   if (x.n > 1) t += `\n📈 O'rtacha: <b>${Math.round(x.avg)} ball</b>`;
   t += `\n🏅 ${x.n > 1 ? "Rekord" : "Natija"}: <b>${x.best.total} ball</b> (${gradeOf(x.best.total)}), ${dayUz(x.best.date)}`;
@@ -640,16 +643,20 @@ async function recapTest(env) { // owner's preview: their personal message + the
   return out.map(r => r.ok ? "ok" : r.description);
 }
 async function sendRecap(env) {
-  if (!await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(RECAP.ok).first()) return { error: "not approved" };
-  if (await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(RECAP.key).first()) return { error: "already sent" };
-  await env.DB.prepare("INSERT INTO meta (k, v) VALUES (?, 1) ON CONFLICT(k) DO NOTHING").bind(RECAP.key).run(); // mark first: never send twice
+  const h = (new Date().getUTCHours() + 5) % 24; if (h < 10 || h >= 21) return { error: "quiet hours" };
+  const n = (await env.DB.prepare("SELECT count(*) n FROM plays").first()).n, m = Math.floor(n / RECAP.step) * RECAP.step;
+  const last = (await env.DB.prepare("SELECT v FROM meta WHERE k = ?").bind(RECAP.last).first())?.v ?? 0;
+  if (!m || m <= last) return { error: "no new milestone", plays: n, last };
+  const upd = await env.DB.prepare("UPDATE meta SET v = ? WHERE k = ? AND v = ?").bind(m, RECAP.last, last).run(); // claim the milestone first: never send twice
+  if (!last && !upd.meta.changes) await env.DB.prepare("INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO NOTHING").bind(RECAP.last, m).run();
+  else if (!upd.meta.changes) return { error: "already sent" };
   const R = await recapData(env), clients = new Map((await env.DB.prepare("SELECT chat_id, client FROM tg_users WHERE active = 1").all()).results.map(u => [u.chat_id, u.client]));
   let dm = 0, gr = 0;
   for (const x of R.P.values()) if (x.uid && clients.has(x.uid)) {
     const r = await tg(env, "sendMessage", { chat_id: x.uid, text: recapUserText(R, x), parse_mode: "HTML", reply_markup: recapUserKb(clients.get(x.uid)) }).catch(() => null); if (r?.ok) dm++;
   }
   for (const g of R.G) { const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: recapGroupText(R, g), parse_mode: "HTML", reply_markup: recapGroupKb(g.chat_id) }).catch(() => null); if (r?.ok) gr++; }
-  return { dm, groups: gr };
+  return { milestone: m, dm, groups: gr };
 }
 async function bdayTap(env, q) {
   const u = q.from || {}, m = q.message;
@@ -1041,7 +1048,7 @@ export default {
         const c = await env.DB.prepare("INSERT INTO meta (k, v) VALUES ('recap:test', 1) ON CONFLICT(k) DO UPDATE SET v = v + 1 RETURNING v").first();
         return json(c.v <= 10 ? await recapTest(env) : { error: "limit" }, 200, h);
       }
-      if (url.pathname === "/recap/go" && req.method === "GET") return json(await sendRecap(env), 200, h); // once ever, and only after meta 'recap:ok'
+      if (url.pathname === "/recap/go" && req.method === "GET") return json(await sendRecap(env), 200, h); // sends only when a new 100-game milestone is due
       if (url.pathname === "/promo/go" && req.method === "GET") { await sendPromo(env, true); return new Response("ok"); } // one-off; sends at most once ever (meta flag)
       if (url.pathname === "/tg/botinfo" && req.method === "GET") { // public facts only: does the bot have a Main Mini App, where does the menu button point
         const me = await tg(env, "getMe", {}).catch(() => null), mb = await tg(env, "getChatMenuButton", {}).catch(() => null);
@@ -1139,7 +1146,7 @@ export default {
   },
   async scheduled(event, env, ctx) { // hourly: duels; 04:00 UTC = 09:00 Tashkent (morning), 14:00 UTC = 19:00 (evening), 16:00 UTC = 21:00 (group boards)
     if (!env.TG_BOT_TOKEN) return;
-    if (event.cron === "0 * * * *") ctx.waitUntil(duelSweep(env).catch(() => {}).then(() => duelRemind(env)).catch(() => {}).then(() => fbRemind(env)).catch(() => {}).then(() => sendPromo(env)).catch(() => {}).then(() => sendBday(env)).catch(() => {})); // hourly: duel expiry + reminders
+    if (event.cron === "0 * * * *") ctx.waitUntil(duelSweep(env).catch(() => {}).then(() => duelRemind(env)).catch(() => {}).then(() => fbRemind(env)).catch(() => {}).then(() => sendPromo(env)).catch(() => {}).then(() => sendBday(env)).catch(() => {}).then(() => sendRecap(env)).catch(() => {})); // hourly: duel expiry + reminders
     else if (event.cron === "0 16 * * *") ctx.waitUntil(Promise.all([postBoards(env), watchMisses(env).catch(() => {})]));
     else if (event.cron === "0 4 * * *") ctx.waitUntil(Promise.all([remind(env, false), morningGroups(env)]));
     else if (event.cron === "0 14 * * *") ctx.waitUntil(remind(env, true)); // the 19:00 group duel nudge was dropped (owner, 2026-11-25): the 09:00 messages invite to duels instead

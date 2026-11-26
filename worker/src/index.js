@@ -88,6 +88,63 @@ async function gameEvent(env, b) { // {game, client, ev: "start"|"finish", win, 
     .bind(b.game, tzDay(), b.client, fin ? 0 : 1, fin ? 1 : 0, fin && b.win ? 1 : 0, val).run();
   return true;
 }
+// ---------- Chaqmoq: daily track board, ghosts for "beat my time" links ----------
+const RACE_TRACKS = { samarqand: "Samarqand", tog: "Tog' yo'li", shahar: "Tungi shahar", chol: "Cho'l" };
+const RACE_ORDER = ["samarqand", "tog", "shahar", "chol"]; // keep in sync with poyga/game.js dailyTrack()
+const dailyTrack = (day) => RACE_ORDER[((Math.round((Date.parse(day + "T12:00:00Z") - Date.parse("2026-11-26T12:00:00Z")) / 864e5) + 1) % 4 + 4) % 4];
+const fmtRace = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? "0" : ""}${s.toFixed(1)}`; };
+let raceTblReady = false;
+async function raceTbl(env) {
+  if (raceTblReady) return;
+  await env.DB.batch([
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS race_best (day TEXT NOT NULL, track TEXT NOT NULL, client TEXT NOT NULL, time REAL NOT NULL, name TEXT, at INTEGER, PRIMARY KEY (day, track, client))"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS ghosts (id TEXT PRIMARY KEY, track TEXT NOT NULL, time REAL NOT NULL, name TEXT, client TEXT, data TEXT NOT NULL, at INTEGER)"),
+  ]);
+  raceTblReady = true;
+}
+const cleanName = (n) => String(n || "").replace(/[<>\u0000-\u001f]/g, "").trim().slice(0, 24);
+async function raceSubmit(env, b) { // {client, track, time, name}: keeps each player's best time for today's track
+  const day = tzDay(), t = Number(b.time);
+  if (!CLIENT.test(b.client || "") || b.track !== dailyTrack(day) || !(t >= 40 && t <= 900)) return null;
+  await raceTbl(env);
+  await env.DB.prepare(`INSERT INTO race_best (day, track, client, time, name, at) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(day, track, client) DO UPDATE SET time = MIN(time, excluded.time), name = COALESCE(excluded.name, name), at = CASE WHEN excluded.time < time THEN excluded.at ELSE at END`)
+    .bind(day, b.track, b.client, +t.toFixed(2), cleanName(b.name) || null, Date.now()).run();
+  return raceBoard(env, b.client);
+}
+async function raceBoard(env, client) { // today's track: top 20 with names (Telegram name when known), plus the caller's rank
+  await raceTbl(env);
+  const day = tzDay(), track = dailyTrack(day);
+  const { results } = await env.DB.prepare(`SELECT r.client, r.time, COALESCE(u.name, r.name) AS name FROM race_best r LEFT JOIN aliases a ON a.alias = r.client
+    LEFT JOIN tg_users u ON u.client = COALESCE(a.client, r.client) WHERE r.day = ? AND r.track = ? ORDER BY r.time LIMIT 20`).bind(day, track).all();
+  const out = { day, track, name: RACE_TRACKS[track], top: results.map((r) => ({ name: r.name || "Mehmon", time: r.time, me: r.client === client })) };
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM race_best WHERE day = ? AND track = ?").bind(day, track).first(); out.total = n.n;
+  if (CLIENT.test(client || "")) {
+    const me = await env.DB.prepare("SELECT time FROM race_best WHERE day = ? AND track = ? AND client = ?").bind(day, track, client).first();
+    if (me) { const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM race_best WHERE day = ? AND track = ? AND time < ?").bind(day, track, me.time).first(); out.me = { time: me.time, rank: r.n + 1 }; }
+  }
+  return out;
+}
+async function raceChampion(env, gid, day) { // fastest group member on that day's track
+  await raceTbl(env);
+  return env.DB.prepare(`SELECT u.name, MIN(r.time) AS time FROM race_best r LEFT JOIN aliases a ON a.alias = r.client JOIN tg_users u ON u.client = COALESCE(a.client, r.client)
+    JOIN tg_members m ON m.user_id = u.chat_id WHERE m.group_id = ? AND r.day = ? AND r.track = ? GROUP BY u.chat_id ORDER BY time LIMIT 1`).bind(gid, day, dailyTrack(day)).first();
+}
+async function ghostSave(env, b) {
+  const t = Number(b.time), data = String(b.data || "");
+  if (!CLIENT.test(b.client || "") || !RACE_TRACKS[b.track] || !(t >= 40 && t <= 900) || data.length < 20 || data.length > 120000) return null;
+  await raceTbl(env);
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(6)), (x) => x.toString(36).padStart(2, "0")).join("").slice(0, 10);
+  await env.DB.prepare("INSERT INTO ghosts (id, track, time, name, client, data, at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, b.track, +t.toFixed(2), cleanName(b.name) || null, b.client, data, Date.now()).run();
+  return id;
+}
+async function ghostGet(env, id) {
+  if (!/^[a-z0-9]{6,12}$/.test(id || "")) return null;
+  await raceTbl(env);
+  const g = await env.DB.prepare(`SELECT g.track, g.time, g.data, COALESCE(u.name, g.name) AS name FROM ghosts g LEFT JOIN aliases a ON a.alias = g.client
+    LEFT JOIN tg_users u ON u.client = COALESCE(a.client, g.client) WHERE g.id = ?`).bind(id).first();
+  return g ? { track: g.track, time: g.time, data: g.data, name: g.name || "Do'stingiz" } : null;
+}
 async function gamesSummary(env, n = 14) {
   return cached(env, "games:" + n, 60e3, async () => {
     await gameTbl(env);
@@ -535,7 +592,9 @@ async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note i
       ? `<b>☀️ Sezgir #${puzzleNo(day)} · hozirgi reyting</b>${news}\n\n${boardLines(b.played.slice(0, 10)).map(esc).join("\n")}${b.played.length > 10 ? `\n… yana ${b.played.length - 10} kishi` : ""}\n\n<b>${b.idle.length ? `Hali o'ynamaganlar: ${b.idle.length} kishi. Kim o'zib ketadi?` : "Hamma o'ynadi!"}</b>${yest ? `\n\n${yest}` : ""}`
       : `<b>☀️ Sezgir #${puzzleNo(day)} tayyor. Bugun kim birinchi bo'ladi?</b>${news}${yest ? `\n\n${yest}` : ""}`;
     const duel = `\n\n⚔️ <b>Guruhdoshingizni duelga chaqiring</b>: ikkalangizga bir xil, yangi jumboq beriladi.`;
-    const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: text + duel, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", url: `https://t.me/${BOT_USER}?startapp=g${g.chat_id}` }],
+    const rc = await raceChampion(env, g.chat_id, yday).catch(() => null); // yesterday's fastest Chaqmoq racer in this group
+    const race = rc ? `\n\n🏎 Kechagi Chaqmoq chempioni: <b>${esc(rc.name || "O'yinchi")}</b> · ${fmtRace(rc.time)} (${RACE_TRACKS[dailyTrack(yday)]}). Bugungi trassa: <b>${RACE_TRACKS[dailyTrack(day)]}</b>` : "";
+    const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: text + race + duel, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", url: `https://t.me/${BOT_USER}?startapp=g${g.chat_id}` }],
       [{ text: "⚔️ Duelga chaqirish", style: "primary", url: `https://t.me/${BOT_USER}?start=dg${g.chat_id}` }, { text: "🎮 Boshqa o'yinlar", url: `https://t.me/${BOT_USER}?start=games` }]] } });
     if (!r.ok && (r.error_code === 403 || r.error_code === 400)) await env.DB.prepare("UPDATE tg_groups SET active = 0 WHERE chat_id = ?").bind(g.chat_id).run();
     await new Promise(res => setTimeout(res, 40));
@@ -916,6 +975,10 @@ export default {
       if (url.pathname === "/live" && req.method === "GET") return json(await live(env), 200, { ...h, "Cache-Control": "public, max-age=20" });
       if (url.pathname === "/summary" && req.method === "GET") return json(await summary(env, Math.min(Math.max(parseInt(url.searchParams.get("days") || "14", 10) || 14, 7), 60)), 200, { ...h, "Cache-Control": "public, max-age=60" });
       if (url.pathname === "/game" && req.method === "POST") { const b = await req.json().catch(() => null); return (b && await gameEvent(env, b)) ? json({ ok: true }, 200, h) : json({ error: "bad body" }, 400, h); }
+      if (url.pathname === "/race" && req.method === "POST") { const b = await req.json().catch(() => null); const out = b && await raceSubmit(env, b); return out ? json(out, 200, h) : json({ error: "bad body" }, 400, h); }
+      if (url.pathname === "/race" && req.method === "GET") return json(await raceBoard(env, url.searchParams.get("client") || ""), 200, h);
+      if (url.pathname === "/ghost" && req.method === "POST") { const b = await req.json().catch(() => null); const id = b && await ghostSave(env, b); return id ? json({ id }, 200, h) : json({ error: "bad body" }, 400, h); }
+      if (url.pathname === "/ghost" && req.method === "GET") { const g = await ghostGet(env, url.searchParams.get("id")); return g ? json(g, 200, { ...h, "Cache-Control": "public, max-age=3600" }) : json({ error: "not found" }, 404, h); }
       if (url.pathname === "/games" && req.method === "GET") return json(await gamesSummary(env, Math.min(Math.max(parseInt(url.searchParams.get("days") || "14", 10) || 14, 7), 60)), 200, { ...h, "Cache-Control": "public, max-age=60" });
       if (url.pathname === "/ping" && req.method === "POST") {
         const b = await req.json().catch(() => null);

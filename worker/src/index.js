@@ -579,7 +579,7 @@ async function recapData(env) {
   const P = new Map(); // player key -> { uid, plays[] }
   for (const p of plays) { const k = p.uid || "c:" + p.client; p.scores = JSON.parse(p.scores || "[]"); if (!P.has(k)) P.set(k, { uid: p.uid, plays: [] }); P.get(k).plays.push(p); }
   for (const x of P.values()) { const t = x.plays.map(p => p.total); x.n = t.length; x.avg = avgOf(t); x.best = x.plays.reduce((b, p) => p.total > b.total ? p : b); }
-  const ranked = [...P.values()].filter(x => x.n >= 3).sort((a, b) => b.avg - a.avg);
+  const ranked = [...P.values()].filter(x => x.uid).sort((a, b) => b.avg - a.avg || b.n - a.n); // everyone who played via the bot at least once, by average
   const duel = new Map(); const dk = id => duel.get(id) || (duel.set(id, { w: 0, l: 0, d: 0 }), duel.get(id));
   for (const d of duels) { const sa = d.a_score ?? 0, sb = d.b_score ?? 0; if (sa === sb) { dk(d.a).d++; dk(d.b).d++; } else { dk(sa > sb ? d.a : d.b).w++; dk(sa > sb ? d.b : d.a).l++; } }
   const byDay = {}; for (const p of plays) (byDay[p.date] ||= []).push(p.total);
@@ -598,20 +598,22 @@ function recapGroupText(R, g) {
   let t = `📊 <b>Sezgir: birinchi ${R.plays.length >= 100 ? 100 : R.plays.length} o'yin ortda!</b>\n${esc(g.title || "Guruh")} guruhining shu kungacha natijalari:\n`;
   if (!g.plays.length) return t + "\nBu guruhda hali hech kim o'ynamadi. Birinchi bo'lib natija qo'ying! 🎯";
   const rec = g.plays.reduce((b, p) => p.total > b.total ? p : b), loyal = [...g.players].sort((a, b) => b.n - a.n || b.avg - a.avg)[0];
-  const sharp = g.players.filter(x => x.n >= 3).sort((a, b) => b.avg - a.avg)[0], rank = R.gRanked.indexOf(g) + 1;
+  const rank = R.gRanked.indexOf(g) + 1;
   const tests = testAvgs(g.plays).sort((a, b) => b.a - a.a);
   t += `\n🎮 <b>${g.plays.length} ta o'yin</b>, ${g.players.length} o'yinchi`;
   t += `\n📈 Guruh o'rtachasi: <b>${Math.round(g.avg)} ball</b>${rank && R.gRanked.length > 1 ? ` · guruhlar ichida ${rank}-o'rin${rank === 1 ? " 🥇" : ""}` : ""}`;
   t += `\n🏅 Rekord: <b>${nm(rec.uid)}</b>, ${rec.total} ball (${gradeOf(rec.total)}), ${dayUz(rec.date)}`;
   if (loyal && loyal.n >= 2) t += `\n🔥 Eng sodiq: <b>${nm(loyal.uid)}</b>, ${loyal.n} kun o'ynadi`;
-  if (sharp && g.players.length >= 3) t += `\n🎯 Eng aniq: <b>${nm(sharp.uid)}</b>, o'rtacha ${Math.round(sharp.avg)} ball`;
   if (g.duels.length) {
     const w = new Map(); for (const d of g.duels) { const sa = d.a_score ?? 0, sb = d.b_score ?? 0; if (sa !== sb) { const id = sa > sb ? d.a : d.b; w.set(id, (w.get(id) || 0) + 1); } }
     const top = [...w.entries()].sort((a, b) => b[1] - a[1])[0];
     t += `\n⚔️ Duellar: ${g.duels.length} ta${top && top[1] >= 2 ? `, eng ko'p yutgan: <b>${nm(top[0])}</b> (${top[1]})` : ""}`;
   }
   if (tests.length >= 2) t += `\n🧩 Kuchli testimiz: ${tests[0].name} (${tests[0].a}), eng qiyini: ${tests.at(-1).name} (${tests.at(-1).a})`;
-  return t + "\n\n📬 Har bir o'yinchiga shaxsiy statistikasi botda yuborildi.";
+  const board = [...g.players].sort((a, b) => b.avg - a.avg || b.n - a.n).slice(0, 10);
+  t += "\n\n🏆 <b>Guruh reytingi</b> (o'rtacha ball bo'yicha):\n" + board.map((x, i) => `${MEDALS[i] || `${i + 1}.`} ${nm(x.uid)}: ${Math.round(x.avg)} ball, ${x.n} o'yin · umumiy ${R.ranked.indexOf(x) + 1}-o'rin`).join("\n");
+  if (g.players.length > board.length) t += `\n…va yana ${g.players.length - board.length} kishi`;
+  return t + `\n\n<i>Umumiy o'rin: botda kamida 1 marta o'ynagan ${R.ranked.length} o'yinchi orasida.</i>\n📬 Har bir o'yinchiga shaxsiy statistikasi botda yuborildi.`;
 }
 function recapUserText(R, x) {
   const raw = R.names.get(x.uid) || "", name = /\p{L}/u.test(raw) ? esc(raw) + ", m" : "M", tests = testAvgs(x.plays).sort((a, b) => b.a - a.a);
@@ -623,8 +625,7 @@ function recapUserText(R, x) {
   if (x.n >= 4) { const h = Math.floor(x.n / 2), a = Math.round(avgOf(x.plays.slice(0, h).map(p => p.total))), b = Math.round(avgOf(x.plays.slice(-h).map(p => p.total))), d = b - a;
     t += `\n${d >= 0 ? "🚀" : "📉"} Rivojlanish: dastlabki o'yinlarda ${a} → oxirgilarida ${b} (${d >= 0 ? "+" : ""}${d})`; }
   const r = R.ranked.indexOf(x) + 1;
-  if (r && r <= Math.ceil(R.ranked.length / 2)) t += `\n🏆 Umumiy reyting: <b>${r}-o'rin</b> (${R.ranked.length} o'yinchidan)${r <= 3 ? " " + MEDALS[r - 1] : ""}`; // bottom half: no rank, only the trend
-  else if (!r) t += `\n🏆 Umumiy reytingga kirish uchun yana ${3 - x.n} ta o'yin kerak`;
+  if (r) t += `\n🏆 Umumiy reyting: <b>${r}-o'rin</b> (${R.ranked.length} o'yinchidan)${r <= 3 ? " " + MEDALS[r - 1] : ""}`;
   const d = R.duel.get(x.uid); if (d) t += `\n⚔️ Duellar: ${d.w} g'alaba, ${d.l} mag'lubiyat${d.d ? `, ${d.d} durang` : ""}`;
   return t + "\n\nBugungi jumboq sizni kutmoqda 👇";
 }

@@ -9,6 +9,7 @@
       return id;
     } catch (e) { return null; }
   }
+  window.sezgirClient = client;
   window.gameStat = (game, ev, extra) => {
     if (/[?&]auto/.test(location.search)) return; // test autopilot
     const c = client(); if (!c) return;

@@ -36,6 +36,29 @@ function vnoise(x, y) {
   return lerp(lerp(a, b, u), lerp(c, d, u), v);
 }
 function fbm(x, y) { let f = 0, a = 0.5; for (let i = 0; i < 4; i++) { f += a * vnoise(x, y); x *= 2.03; y *= 2.03; a *= 0.5; } return f; }
+// ---------------------------------------------------------------- tracks
+// four tracks; one per day is "today's track" with a shared leaderboard (order kept in sync with the worker's RACE_ORDER)
+const V3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+const TRACKS = {
+  samarqand: { name: 'Samarqand', icon: '🕌', ctrl: [[0,0],[0,-120],[20,-200],[80,-240],[160,-230],[210,-180],[200,-110],[150,-70],[140,-20],[190,30],[260,50],[300,120],[270,200],[190,230],[100,210],[60,150],[20,100]],
+    sky: [[0.16,0.27,0.62],[0.55,0.55,0.85],[0.98,0.74,0.55],[0.95,0.66,0.48]], glow: [1,0.75,0.45], fog: ['#f2b98c', 140, 900], hemi: ['#bcd3ff', '#c98a5a', 1.25], sun: ['#ffd7a8', 2.6], exp: 1.05,
+    ground: ['#d9a873', '#c48553', '#9aa75a', '#6f8f45'], hills: 1, peaks: '#9c7aa6', snow: true, road: '#4a4650', shoulder: '#d8ad7a', wall: ['#1b8f8a', '#f2f2f2', '#1b8f8a', '#f2b33d'], ui: '#1b1430' },
+  tog: { name: "Tog' yo'li", icon: '🏔', ctrl: [[0,0],[0,-110],[25,-175],[90,-200],[135,-160],[115,-100],[160,-55],[235,-85],[295,-45],[290,35],[225,70],[195,135],[245,195],[195,260],[105,250],[60,190],[75,120],[25,75]],
+    sky: [[0.1,0.28,0.68],[0.42,0.62,0.94],[0.86,0.93,1.0],[0.78,0.85,0.92]], glow: [1,0.95,0.85], fog: ['#cddff0', 150, 850], hemi: ['#d6e8ff', '#56624a', 1.2], sun: ['#fff3e0', 2.7], exp: 1.0,
+    ground: ['#6f8a4c', '#56713d', '#8b8a84', '#f3f5f9'], hills: 1.9, peaks: '#66758f', snow: true, road: '#45474e', shoulder: '#8c8b7c', wall: ['#d23b3b', '#f4f4f4', '#d23b3b', '#f4f4f4'], ui: '#14233a' },
+  shahar: { name: 'Tungi shahar', icon: '🌃', night: true, ctrl: [[0,0],[0,-140],[35,-185],[190,-190],[235,-150],[235,-75],[180,-35],[180,25],[240,65],[245,170],[205,215],[60,215],[5,175],[-5,90]],
+    sky: [[0.015,0.02,0.07],[0.04,0.05,0.15],[0.2,0.13,0.3],[0.07,0.06,0.12]], glow: [0.6,0.7,1], fog: ['#1c1830', 90, 620], hemi: ['#6070b8', '#1c1428', 0.6], sun: ['#9fb4ff', 0.9], exp: 1.2,
+    ground: ['#2a2933', '#24232c', '#1c3327', '#16291f'], hills: 0.12, peaks: null, snow: false, road: '#2f2e37', shoulder: '#3b3a45', wall: ['#ff3d7f', '#1b1b25', '#3fe0ff', '#1b1b25'], ui: '#0d0b1a' },
+  chol: { name: "Cho'l", icon: '🐪', ctrl: [[0,0],[0,-170],[60,-265],[185,-295],[305,-245],[345,-125],[305,0],[335,120],[265,230],[125,245],[35,175]],
+    sky: [[0.22,0.43,0.78],[0.6,0.7,0.88],[1.0,0.86,0.62],[0.98,0.8,0.55]], glow: [1,0.85,0.55], fog: ['#f1d3a2', 150, 850], hemi: ['#ffe6c0', '#c98a4a', 1.3], sun: ['#ffe2b4', 3.0], exp: 1.02,
+    ground: ['#e9c286', '#d9a666', '#c99459', '#b98248'], hills: 0.7, dunes: true, peaks: '#c68a5c', snow: false, road: '#57514d', shoulder: '#e3b97f', wall: ['#e8742a', '#f6efe2', '#e8742a', '#f6efe2'], ui: '#2a1a10' },
+};
+const TRACK_ORDER = ['samarqand', 'tog', 'shahar', 'chol'];
+const tzDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tashkent' });
+const dailyTrack = (day = tzDay()) => TRACK_ORDER[((Math.round((Date.parse(day + 'T12:00:00Z') - Date.parse('2026-11-26T12:00:00Z')) / 864e5) + 1) % 4 + 4) % 4];
+const QS = new URLSearchParams(location.search);
+const TRACK_ID = TRACKS[QS.get('t')] ? QS.get('t') : TRACKS[store.get('track', '')] ? store.get('track', '') : dailyTrack();
+const TH = TRACKS[TRACK_ID];
 const fmtT = (t) => { if (!isFinite(t)) return '—'; const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); };
 
 // ---------------------------------------------------------------- renderer
@@ -46,17 +69,17 @@ renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = TH.exp;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-const FOG = new THREE.Color('#f2b98c');
-scene.fog = new THREE.Fog(FOG, 140, 900);
+const FOG = new THREE.Color(TH.fog[0]);
+scene.fog = new THREE.Fog(FOG, TH.fog[1], TH.fog[2]);
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.5, 3000);
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.55;
+scene.environmentIntensity = TH.night ? 0.35 : 0.55;
 
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
@@ -69,21 +92,20 @@ addEventListener('resize', () => {
   const g = new THREE.SphereGeometry(2000, 32, 16);
   const m = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { sunDir: { value: new THREE.Vector3(-0.55, 0.22, -0.8).normalize() } },
+    uniforms: { sunDir: { value: new THREE.Vector3(-0.55, TH.night ? 0.35 : 0.22, -0.8).normalize() }, cTop: { value: V3(TH.sky[0]) }, cMid: { value: V3(TH.sky[1]) }, cHor: { value: V3(TH.sky[2]) }, cLow: { value: V3(TH.sky[3]) }, cGlow: { value: V3(TH.glow) }, night: { value: TH.night ? 1 : 0 } },
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-    fragmentShader: `varying vec3 vP; uniform vec3 sunDir;
+    fragmentShader: `varying vec3 vP; uniform vec3 sunDir, cTop, cMid, cHor, cLow, cGlow; uniform float night;
       void main(){ float h = vP.y;
-        vec3 top = vec3(0.16,0.27,0.62), mid = vec3(0.55,0.55,0.85), hor = vec3(0.98,0.74,0.55), low = vec3(0.95,0.66,0.48);
-        vec3 c = h>0.0 ? mix(hor, mix(mid, top, smoothstep(0.15,0.7,h)), smoothstep(0.0,0.25,h)) : low;
+        vec3 c = h>0.0 ? mix(cHor, mix(cMid, cTop, smoothstep(0.15,0.7,h)), smoothstep(0.0,0.25,h)) : cLow;
         float s = max(dot(vP, sunDir),0.0);
-        c += vec3(1.0,0.75,0.45)*pow(s,8.0)*0.45 + vec3(1.0,0.95,0.8)*smoothstep(0.9965,0.999,s)*1.4;
+        c += cGlow*pow(s,8.0)*(0.45 - night*0.3) + vec3(1.0,0.95,0.8)*smoothstep(0.9965 - night*0.0015,0.999,s)*(1.4 - night*0.4);
         gl_FragColor = vec4(c,1.); }`,
   });
   scene.add(new THREE.Mesh(g, m));
 }
-const hemi = new THREE.HemisphereLight('#bcd3ff', '#c98a5a', 1.25);
+const hemi = new THREE.HemisphereLight(TH.hemi[0], TH.hemi[1], TH.hemi[2]);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight('#ffd7a8', 2.6);
+const sun = new THREE.DirectionalLight(TH.sun[0], TH.sun[1]);
 const SUNV = new THREE.Vector3(-0.55, 0.62, -0.8).normalize();
 sun.castShadow = true;
 sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048);
@@ -92,7 +114,7 @@ sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.6;
 scene.add(sun, sun.target);
 
 // ---------------------------------------------------------------- track
-const CTRL = [[0,0],[0,-120],[20,-200],[80,-240],[160,-230],[210,-180],[200,-110],[150,-70],[140,-20],[190,30],[260,50],[300,120],[270,200],[190,230],[100,210],[60,150],[20,100]];
+const CTRL = TH.ctrl;
 const curve = new THREE.CatmullRomCurve3(CTRL.map((p) => new THREE.Vector3(p[0], 0, p[1])), true, 'centripetal');
 const N = 1400;
 const sp = curve.getSpacedPoints(N);
@@ -107,6 +129,9 @@ for (let i = 0; i < N; i++) {
 }
 for (let i = 1; i <= N; i++) { const a = i - 1, b = i % N; CUM[i] = CUM[a] + Math.hypot(PX[b] - PX[a], PZ[b] - PZ[a]); }
 const L = CUM[N], STEP = L / N;
+let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+for (let i = 0; i < N; i++) { minX = Math.min(minX, PX[i]); maxX = Math.max(maxX, PX[i]); minZ = Math.min(minZ, PZ[i]); maxZ = Math.max(maxZ, PZ[i]); }
+const CX = (minX + maxX) / 2, CZ = (minZ + maxZ) / 2; // world centre of this track (terrain, peaks, clouds)
 const HW = 7.5, CURB = 1.1, WALL = 12.5;
 
 function nearestIdx(x, z, hint) {
@@ -125,7 +150,7 @@ function canvasTex(w, h, draw, repeat = true) {
   return t;
 }
 const roadTex = canvasTex(256, 512, (g, w, h) => {
-  g.fillStyle = '#4a4650'; g.fillRect(0, 0, w, h);
+  g.fillStyle = TH.road; g.fillRect(0, 0, w, h);
   const r = rng(7);
   for (let i = 0; i < 9000; i++) { const v = 60 + r() * 50 | 0; g.fillStyle = `rgba(${v},${v - 4},${v + 8},${0.35 + r() * 0.4})`; g.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); }
   // tyre marks
@@ -135,13 +160,13 @@ const roadTex = canvasTex(256, 512, (g, w, h) => {
 });
 const curbTex = canvasTex(64, 128, (g, w, h) => { g.fillStyle = '#e8edf2'; g.fillRect(0, 0, w, h); g.fillStyle = '#e2363e'; g.fillRect(0, 0, w, h / 2); });
 const wallTex = canvasTex(256, 64, (g, w, h) => {
-  const cols = ['#1b8f8a', '#f2f2f2', '#1b8f8a', '#f2b33d'];
+  const cols = TH.wall;
   for (let i = 0; i < 4; i++) { g.fillStyle = cols[i]; g.fillRect(i * w / 4, 0, w / 4, h); }
   g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, h - 8, w, 8);
   g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(0, 0, w, 5);
 });
 const sandTex = canvasTex(256, 256, (g, w, h) => {
-  g.fillStyle = '#d8ad7a'; g.fillRect(0, 0, w, h); const r = rng(3);
+  g.fillStyle = TH.shoulder; g.fillRect(0, 0, w, h); const r = rng(3);
   for (let i = 0; i < 5000; i++) { g.fillStyle = r() < 0.5 ? 'rgba(160,110,70,.25)' : 'rgba(255,230,190,.25)'; g.fillRect(r() * w, r() * h, 2, 2); }
 });
 
@@ -200,17 +225,22 @@ const START_I = 0;
   const S = 1800, seg = isTouch ? 150 : 220;
   const g = new THREE.PlaneGeometry(S, S, seg, seg); g.rotateX(-Math.PI / 2);
   const p = g.attributes.position, col = new Float32Array(p.count * 3);
-  const c1 = new THREE.Color('#d9a873'), c2 = new THREE.Color('#c48553'), c3 = new THREE.Color('#9aa75a'), c4 = new THREE.Color('#6f8f45'), tmp = new THREE.Color();
+  const [c1, c2, c3, c4] = TH.ground.map((c) => new THREE.Color(c)), tmp = new THREE.Color();
   for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i) + 150, z = p.getZ(i) - 10; p.setX(i, x); p.setZ(i, z);
+    const x = p.getX(i) + CX, z = p.getZ(i) + CZ; p.setX(i, x); p.setZ(i, z);
     const d = distToTrack(x, z);
     const k = clamp((d - 16) / 110, 0, 1), kk = k * k * (3 - 2 * k);
     const n = fbm(x * 0.006, z * 0.006);
-    const far = clamp((Math.hypot(x - 150, z + 10) - 450) / 300, 0, 1);
-    const h = (n - 0.35) * 46 * kk + far * far * 60 * fbm(x * 0.01 + 5, z * 0.01);
+    const far = clamp((Math.hypot(x - CX, z - CZ) - 450) / 300, 0, 1);
+    let h = (n - 0.35) * 46 * kk * TH.hills + far * far * 60 * TH.hills * fbm(x * 0.01 + 5, z * 0.01);
+    if (TH.dunes) h += (Math.sin(x * 0.045 + Math.sin(z * 0.02) * 2.2) * 0.5 + 0.5) * 9 * kk + fbm(x * 0.02, z * 0.02) * 6 * kk;
     p.setY(i, h - 0.25);
-    const green = clamp((fbm(x * 0.012 + 11, z * 0.012 - 4) - 0.5) * 4, 0, 1) * (1 - far) * clamp(1.2 - h / 18, 0, 1);
-    tmp.copy(c1).lerp(c2, clamp(n * 1.4 - 0.2, 0, 1)).lerp(c3, green * 0.9).lerp(c4, green * green * 0.6);
+    if (TRACK_ID === 'tog') { // grass low, rock on slopes, snow on top
+      tmp.copy(c1).lerp(c2, clamp(n * 1.4 - 0.2, 0, 1)).lerp(c3, clamp((h - 14) / 22, 0, 1)).lerp(c4, clamp((h - 42) / 14, 0, 1));
+    } else {
+      const green = clamp((fbm(x * 0.012 + 11, z * 0.012 - 4) - 0.5) * 4, 0, 1) * (1 - far) * clamp(1.2 - h / 18, 0, 1) * (TH.dunes ? 0.15 : 1);
+      tmp.copy(c1).lerp(c2, clamp(n * 1.4 - 0.2, 0, 1)).lerp(c3, green * 0.9).lerp(c4, green * green * 0.6);
+    }
     tmp.multiplyScalar(0.92 + hash2(x, z) * 0.12);
     col[i * 3] = tmp.r; col[i * 3 + 1] = tmp.g; col[i * 3 + 2] = tmp.b;
   }
@@ -220,13 +250,13 @@ const START_I = 0;
 }
 // distant mountains
 {
-  const mat = new THREE.MeshStandardMaterial({ color: '#9c7aa6', roughness: 1, flatShading: true });
+  const mat = new THREE.MeshStandardMaterial({ color: TH.peaks || '#000', roughness: 1, flatShading: true });
   const snow = new THREE.MeshStandardMaterial({ color: '#fff4ec', roughness: 0.9, flatShading: true });
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < (TH.peaks ? 26 : 0); i++) {
     const a = (i / 26) * Math.PI * 2 + R() * 0.2, r = 1050 + R() * 250, h = 120 + R() * 200, w = 160 + R() * 160;
     const geo = new THREE.ConeGeometry(w, h, 6 + (R() * 3 | 0), 1); const m = new THREE.Mesh(geo, mat);
-    m.position.set(150 + Math.cos(a) * r, h / 2 - 20, -10 + Math.sin(a) * r); m.rotation.y = R() * 3; scene.add(m);
-    if (h > 210) { const s = new THREE.Mesh(new THREE.ConeGeometry(w * 0.3, h * 0.3, geo.parameters.radialSegments, 1), snow); s.position.copy(m.position); s.position.y = h - 20 - h * 0.15 + 0.5; s.rotation.y = m.rotation.y; scene.add(s); }
+    m.position.set(CX + Math.cos(a) * r, h / 2 - 20, CZ + Math.sin(a) * r); m.rotation.y = R() * 3; scene.add(m);
+    if (TH.snow && h > (TRACK_ID === 'tog' ? 150 : 210)) { const s = new THREE.Mesh(new THREE.ConeGeometry(w * 0.3, h * 0.3, geo.parameters.radialSegments, 1), snow); s.position.copy(m.position); s.position.y = h - 20 - h * 0.15 + 0.5; s.rotation.y = m.rotation.y; scene.add(s); }
   }
 }
 
@@ -248,7 +278,7 @@ function instanced(geo, mat, list, shadow = true) {
   list.forEach((t, i) => { tmpQ.setFromAxisAngle(UP, t.r || 0); tmpS.set(t.sx || t.s, t.sy || t.s, t.sz || t.sx || t.s); tmpP.set(t.x, t.y || 0, t.z); tmpM.compose(tmpP, tmpQ, tmpS); m.setMatrixAt(i, tmpM); if (t.c) m.setColorAt(i, t.c); });
   m.castShadow = shadow; m.receiveShadow = true; scene.add(m); return m;
 }
-{
+if (TRACK_ID === 'samarqand') {
   // poplars (terak) — tall slim trees in rows, very Uzbek-countryside
   const poplars = [], trunks = [], rounds = [], roundTrunks = [];
   const greens = ['#4f8a3c', '#5f9a40', '#7aa847', '#c9b23d', '#e0a33a'].map((c) => new THREE.Color(c));
@@ -278,6 +308,67 @@ function instanced(geo, mat, list, shadow = true) {
   instanced(new THREE.CylinderGeometry(0.25, 0.35, 2.4, 5), bark, roundTrunks);
   // rocks
   const rocks = []; scatter(70, 16, 90, ([x, z]) => rocks.push({ x, y: 0.2, z, s: 0.6 + R() * 1.6, r: R() * 6, c: new THREE.Color().setHSL(0.07, 0.25, 0.45 + R() * 0.2) }));
+  instanced(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), rocks);
+}
+if (TRACK_ID === 'tog') {
+  // archa (juniper/pine) forest, boulders and a few shepherd huts
+  const pines = [], trunks = [], rocks = [];
+  const greens = ['#2f5d3a', '#3a6b40', '#264f33', '#4b7a45'].map((c) => new THREE.Color(c));
+  scatter(330, 18, 150, ([x, z]) => { const s = 0.8 + R() * 0.8; pines.push({ x, y: 0, z, s, r: R() * 6, c: greens[R() * 4 | 0] }); trunks.push({ x, y: 0.9 * s, z, s }); });
+  const pg = mergeGeometries([0, 1, 2].map((k) => { const g = new THREE.ConeGeometry(2.6 - k * 0.65, 4.2 - k * 0.5, 8, 1); g.translate(0, 3.2 + k * 2.3, 0); return g; }));
+  instanced(pg, new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }), pines);
+  instanced(new THREE.CylinderGeometry(0.22, 0.32, 1.8, 5), new THREE.MeshStandardMaterial({ color: '#5e4128', roughness: 1 }), trunks);
+  scatter(120, 16, 110, ([x, z]) => rocks.push({ x, y: 0.4, z, s: 0.8 + R() * 2.6, sy: 0.7 + R() * 1.6, r: R() * 6, c: new THREE.Color().setHSL(0.6, 0.06, 0.42 + R() * 0.2) }));
+  instanced(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), rocks);
+  const wood = new THREE.MeshStandardMaterial({ color: '#8a5a36', roughness: 0.9 }), roofM = new THREE.MeshStandardMaterial({ color: '#5b3b2a', roughness: 0.8 });
+  for (const [f, side, off] of [[0.15, 1, 34], [0.42, -1, 38], [0.7, 1, 40], [0.9, -1, 32]]) {
+    const i = Math.round(N * f), x = PX[i] + NX[i] * off * side, z = PZ[i] + NZ[i] * off * side, g = new THREE.Group();
+    const b = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 6), wood); b.position.y = 2; g.add(b);
+    const r = new THREE.Mesh(new THREE.ConeGeometry(6.4, 3.4, 4), roofM); r.position.y = 5.7; r.rotation.y = Math.PI / 4; r.scale.z = 0.8; g.add(r);
+    g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } }); g.position.set(x, 0, z); g.rotation.y = Math.atan2(PX[i] - x, PZ[i] - z); scene.add(g);
+  }
+}
+const lampGlows = [];
+if (TRACK_ID === 'shahar') {
+  // night city: lit tower blocks, neon tops, street lamps with pools of light, stars
+  const winTex = canvasTex(128, 256, (g, w, h) => { g.fillStyle = '#15131d'; g.fillRect(0, 0, w, h); const r = rng(5);
+    for (let y = 6; y < h; y += 16) for (let x = 6; x < w; x += 14) { const on = r() < 0.42; g.fillStyle = on ? ['#ffd88a', '#fff1c9', '#9fd6ff', '#ffb36b'][r() * 4 | 0] : '#1f1d2a'; g.fillRect(x, y, 8, 9); } });
+  winTex.repeat.set(1, 1);
+  const bMat = new THREE.MeshStandardMaterial({ map: winTex, emissiveMap: winTex, emissive: '#ffffff', emissiveIntensity: 1.1, roughness: 0.7 });
+  const blocks = [], tops = [];
+  const tints = ['#8a8fa8', '#a89a8a', '#7f97a3', '#9a8aa8'].map((c) => new THREE.Color(c));
+  const neon = ['#ff3d7f', '#3fe0ff', '#ffd23f', '#9d5cff'].map((c) => new THREE.Color(c));
+  scatter(150, 26, 160, ([x, z]) => { const w = 10 + R() * 14, d = 10 + R() * 14, hgt = 14 + R() * R() * 70, r = R() * 3;
+    blocks.push({ x, y: hgt / 2, z, s: 1, sx: w, sy: hgt, sz: d, r, c: tints[R() * 4 | 0] });
+    if (R() < 0.45) tops.push({ x, y: hgt + 0.6, z, s: 1, sx: w * 0.9, sy: 1.2, sz: d * 0.9, r, c: neon[R() * 4 | 0] }); });
+  for (let k = 0; k < 70; k++) { const a = (k / 70) * TAU, rr = 520 + R() * 160, hgt = 40 + R() * 120, w = 30 + R() * 30;
+    blocks.push({ x: CX + Math.cos(a) * rr, y: hgt / 2, z: CZ + Math.sin(a) * rr, s: 1, sx: w, sy: hgt, sz: w, r: a, c: tints[R() * 4 | 0] }); }
+  instanced(new THREE.BoxGeometry(1, 1, 1), bMat, blocks);
+  instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ toneMapped: false }), tops, false);
+  // lamps every ~36 m on alternating sides
+  const poles = [], heads = [], pools = [];
+  const nL = Math.round(L / 36);
+  for (let k = 0; k < nL; k++) { const i = Math.round((k / nL) * N) % N, side = k % 2 ? 1 : -1, off = WALL + 1.2;
+    const x = PX[i] + NX[i] * off * side, z = PZ[i] + NZ[i] * off * side;
+    poles.push({ x, y: 4, z, s: 1 }); heads.push({ x: x - NX[i] * side * 2.2, y: 8, z: z - NZ[i] * side * 2.2, s: 1, sx: 1.4, sy: 0.35, sz: 0.7, r: Math.atan2(NX[i], NZ[i]) });
+    pools.push({ x: x - NX[i] * side * 4.5, y: 0.06, z: z - NZ[i] * side * 4.5, s: 13 }); }
+  instanced(new THREE.CylinderGeometry(0.14, 0.2, 8, 6), new THREE.MeshStandardMaterial({ color: '#3a3d48', metalness: 0.6, roughness: 0.4 }), poles);
+  instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: '#fff2c4', toneMapped: false }), heads, false);
+  const poolTex = canvasTex(64, 64, (g) => { const gr = g.createRadialGradient(32, 32, 1, 32, 32, 31); gr.addColorStop(0, 'rgba(255,214,140,.75)'); gr.addColorStop(1, 'rgba(255,190,110,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); }, false);
+  const pg = new THREE.PlaneGeometry(1, 1); pg.rotateX(-Math.PI / 2);
+  const pm = instanced(pg, new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }), pools, false); pm.receiveShadow = false; pm.userData.dyn = true;
+  // stars
+  const sp = []; for (let k = 0; k < 900; k++) { const a = R() * TAU, y = 0.12 + R() * 0.88, r = Math.sqrt(1 - y * y); sp.push(Math.cos(a) * r * 1900, y * 1900, Math.sin(a) * r * 1900); }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+  const stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: '#ffffff', size: 2.2, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.85 })); stars.userData.dyn = true; scene.add(stars);
+}
+if (TRACK_ID === 'chol') {
+  // Khorezm desert: saxaul bushes, sandstone rocks (and the Khiva-style madrasas below)
+  const bush = [], rocks = [];
+  const olive = ['#7d7a4a', '#8c8456', '#6b6a42'].map((c) => new THREE.Color(c));
+  scatter(190, 17, 150, ([x, z]) => { const s = 0.6 + R() * 1.1; bush.push({ x, y: 0.7 * s, z, s, sy: s * 0.6, r: R() * 6, c: olive[R() * 3 | 0] }); });
+  instanced(new THREE.IcosahedronGeometry(1.8, 0), new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), bush);
+  scatter(80, 18, 130, ([x, z]) => rocks.push({ x, y: 0.6, z, s: 1 + R() * 3, sy: 0.8 + R() * 2.4, r: R() * 6, c: new THREE.Color().setHSL(0.07, 0.45, 0.5 + R() * 0.15) }));
   instanced(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), rocks);
 }
 
@@ -318,12 +409,15 @@ function placeFacing(i, side, off, s) {
   const x = PX[i] + NX[i] * off * side, z = PZ[i] + NZ[i] * off * side;
   const rot = Math.atan2(PX[i] - x, PZ[i] - z); madrasa(x, z, rot, s);
 }
-placeFacing(Math.round(N * 0.06), -1, 48, 1.15);
-placeFacing(Math.round(N * 0.33), 1, 52, 1.0);
-placeFacing(Math.round(N * 0.55), -1, 58, 1.3);
-placeFacing(Math.round(N * 0.8), 1, 50, 0.95);
+const HAS_MADRASA = TRACK_ID === 'samarqand' || TRACK_ID === 'chol';
+if (HAS_MADRASA) {
+  placeFacing(Math.round(N * 0.06), -1, 48, 1.15);
+  placeFacing(Math.round(N * 0.33), 1, 52, 1.0);
+  placeFacing(Math.round(N * 0.55), -1, 58, 1.3);
+  if (TRACK_ID === 'samarqand') placeFacing(Math.round(N * 0.8), 1, 50, 0.95);
+}
 // single minarets
-for (const [f, side, off] of [[0.2, 1, 36], [0.45, -1, 40], [0.68, 1, 44], [0.92, -1, 34]]) {
+for (const [f, side, off] of HAS_MADRASA ? [[0.2, 1, 36], [0.45, -1, 40], [0.68, 1, 44], [0.92, -1, 34]] : []) {
   const i = Math.round(N * f), x = PX[i] + NX[i] * off * side, z = PZ[i] + NZ[i] * off * side;
   const g = new THREE.Group();
   const t = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.6, 30, 14), brickMat); t.position.y = 15; g.add(t);
@@ -345,7 +439,7 @@ const START_ANG = Math.atan2(TX[0], TZ[0]);
     const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#ff9f2e'); gr.addColorStop(1, '#e25b1e'); c.fillStyle = gr; c.fillRect(0, 0, w, h);
     c.fillStyle = 'rgba(255,255,255,.18)'; c.fillRect(0, 0, w, 10);
     c.font = '900 78px Unbounded, Rubik, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
-    c.fillText('CHAQMOQ  ·  START', w / 2, h / 2 + 4);
+    c.fillText('CHAQMOQ  ·  ' + TH.name.toUpperCase(), w / 2, h / 2 + 4);
     for (let x = 0; x < w; x += 32) { c.fillStyle = (x / 32) % 2 ? '#111' : '#fff'; c.fillRect(x, h - 14, 32, 14); }
   }, false);
   const beam = new THREE.Mesh(new THREE.BoxGeometry(WALL * 2 + 3.2, 2.6, 0.9), [darkMat, darkMat, darkMat, darkMat, new THREE.MeshStandardMaterial({ map: bannerTex, roughness: 0.5 }), new THREE.MeshStandardMaterial({ map: bannerTex, roughness: 0.5 })]);
@@ -409,10 +503,10 @@ const padTex = canvasTex(128, 128, (g, w, h) => {
 const clouds = new THREE.Group();
 {
   const cm = new THREE.MeshStandardMaterial({ color: '#fff', roughness: 1, flatShading: true, emissive: '#ffd9c2', emissiveIntensity: 0.25, fog: false });
-  for (let k = 0; k < 14; k++) {
+  for (let k = 0; k < (TH.night ? 0 : 14); k++) {
     const c = new THREE.Group();
     for (let j = 0; j < 5; j++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(10 + R() * 10, 0), cm); b.position.set(j * 14 - 28, R() * 6, R() * 10); b.scale.y = 0.6; c.add(b); }
-    const a = R() * Math.PI * 2, r = 400 + R() * 500; c.position.set(150 + Math.cos(a) * r, 140 + R() * 80, Math.sin(a) * r); c.rotation.y = R() * 3; clouds.add(c);
+    const a = R() * Math.PI * 2, r = 400 + R() * 500; c.position.set(CX + Math.cos(a) * r, 140 + R() * 80, CZ + Math.sin(a) * r); c.rotation.y = R() * 3; clouds.add(c);
   }
   scene.add(clouds);
 }
@@ -445,11 +539,21 @@ function bakeStatic(root, objs) {
 bakeStatic(scene, scene.children.filter((o) => o !== clouds));
 
 // ---------------------------------------------------------------- cars
+// need: wins to unlock; fin: special finish
 const CAR_DEFS = [
-  { name: "Qizil olov", body: '#e8303c', accent: '#1a1a22' },
-  { name: "Moviy shamol", body: '#1f7bff', accent: '#f4f4f4' },
-  { name: "Oq lochin", body: '#f3f1ec', accent: '#e8303c' },
-  { name: "Sariq bo'ron", body: '#ffb11f', accent: '#1a1a22' },
+  { name: "Qizil olov", body: '#e8303c', accent: '#1a1a22', need: 0 },
+  { name: "Moviy shamol", body: '#1f7bff', accent: '#f4f4f4', need: 0 },
+  { name: "Oq lochin", body: '#f3f1ec', accent: '#e8303c', need: 0 },
+  { name: "Sariq bo'ron", body: '#ffb11f', accent: '#1a1a22', need: 0 },
+  { name: "Kumush o'q", body: '#c9ced6', accent: '#1f7bff', need: 3, fin: 'metal' },
+  { name: 'Qora pantera', body: '#1a1a20', accent: '#ffd23f', need: 6, fin: 'matte' },
+  { name: 'Neon', body: '#16142a', accent: '#3fe0ff', need: 10, fin: 'neon' },
+  { name: 'Oltin chaqmoq', body: '#e2b13c', accent: '#1a1a22', need: 15, fin: 'gold' },
+];
+// paint colours for any car; null = the car's own colour
+const PAINTS = [
+  { c: null, need: 0 }, { c: '#e8303c', need: 0 }, { c: '#1f7bff', need: 0 }, { c: '#f3f1ec', need: 0 }, { c: '#ffb11f', need: 0 }, { c: '#22b573', need: 0 },
+  { c: '#ff5fa8', need: 1 }, { c: '#7b4dff', need: 2 }, { c: '#13c4d6', need: 3 }, { c: '#ff7a1f', need: 4 }, { c: '#2c2c36', need: 5 }, { c: '#9be15d', need: 7 },
 ];
 const BOT_DEFS = [
   { name: 'Jasur', body: '#22b573', accent: '#f4f4f4' },
@@ -471,8 +575,9 @@ const flameTex = canvasTex(64, 128, (g) => { const gr = g.createLinearGradient(0
 
 function buildCar(def) {
   const g = new THREE.Group();
-  const paint = new THREE.MeshPhysicalMaterial({ color: def.body, metalness: 0.45, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1.2 });
-  const acc = new THREE.MeshStandardMaterial({ color: def.accent, metalness: 0.3, roughness: 0.4 });
+  const F = { metal: [0.9, 0.18, 1], matte: [0.15, 0.72, 0], gold: [1, 0.22, 1] }[def.fin] || [0.45, 0.28, 1];
+  const paint = new THREE.MeshPhysicalMaterial({ color: def.body, metalness: F[0], roughness: F[1], clearcoat: F[2], clearcoatRoughness: 0.08, envMapIntensity: def.fin === 'gold' ? 1.8 : 1.2 });
+  const acc = def.fin === 'neon' ? new THREE.MeshBasicMaterial({ color: def.accent, toneMapped: false }) : new THREE.MeshStandardMaterial({ color: def.accent, metalness: 0.3, roughness: 0.4 });
   const body = new THREE.Mesh(new RoundedBoxGeometry(2.05, 0.62, 4.4, 4, 0.26), paint); body.position.y = 0.62; g.add(body);
   // wedge nose
   const nose = new THREE.Mesh(new RoundedBoxGeometry(1.9, 0.36, 1.4, 3, 0.16), paint); nose.position.set(0, 0.48, 2.05); nose.rotation.x = 0.12; g.add(nose);
@@ -676,13 +781,35 @@ function haptic(kind) {
 }
 
 // ---------------------------------------------------------------- game state
+// corner: how much a bot slows for a bend (lower = braver); band: rubber-band strength
 const DIFF = [
-  { skill: 0.86, band: 0.10, name: 'Oson' },
-  { skill: 0.95, band: 0.07, name: "O'rta" },
-  { skill: 1.02, band: 0.05, name: 'Qiyin' },
+  // tuned on 2026-11-26: players' best laps were far faster than the old bots (every race was a win)
+  { skill: 1.0, band: 0.08, corner: 0.36, name: 'Oson' },
+  { skill: 1.14, band: 0.10, corner: 0.30, name: "O'rta" },
+  { skill: 1.24, band: 0.12, corner: 0.27, name: 'Qiyin' },
 ];
 const LAPS = 3, MAXV = 47, BOOSTV = 64;
 let carChoice = store.get('car', 0), diff = store.get('diff', 1);
+const wins = () => store.get('totals', { w: 0 }).w || 0;
+if (!(CAR_DEFS[carChoice] && CAR_DEFS[carChoice].need <= wins())) carChoice = 0;
+const paintOf = (i) => { const k = store.get('paint' + i, 0); return PAINTS[k] && PAINTS[k].need <= wins() ? k : 0; };
+const playerDef = () => { const d = CAR_DEFS[carChoice], pc = PAINTS[paintOf(carChoice)].c; return pc ? { ...d, body: pc } : d; };
+// records per track and difficulty (the first track keeps its old keys)
+const bestKey = (d, t = TRACK_ID) => t === 'samarqand' ? 'best' + d : 'best:' + t + d;
+// ---- ghosts: the player's line sampled every 0.1 s as [x*10, z*10, heading*100, progress]
+const GHOST_DT = 0.1;
+let rec = [], recT = 0, ghost = null, challenge = null, ghostOn = store.get('ghostOn', true);
+const ownGhost = () => store.get('ghost:' + TRACK_ID, null);
+function ghostMesh(color) {
+  const v = buildCar({ body: color, accent: '#ffffff' });
+  v.g.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.38; o.material.depthWrite = false; o.castShadow = false; } });
+  v.g.renderOrder = 2; return v;
+}
+function sampleGhost(t) {
+  const d = ghost.d, n = d.length / 4, f = t / GHOST_DT, i = Math.min(Math.floor(f), n - 1), j = Math.min(i + 1, n - 1), k = f - Math.floor(f);
+  const a = i * 4, b = j * 4, ha = d[a + 2] / 100, hb = d[b + 2] / 100;
+  return { x: lerp(d[a], d[b], k) / 10, z: lerp(d[a + 1], d[b + 1], k) / 10, h: ha + wrapA(hb - ha) * k, prog: lerp(d[a + 3], d[b + 3], k), end: f >= n - 1 };
+}
 let cars = [], player = null;
 let state = 'menu'; // menu | count | race | finish | paused
 let raceT = 0, countT = 0, finishT = 0, lastCount = 0;
@@ -690,6 +817,9 @@ const input = { l: false, r: false, b: false, n: false };
 
 function makeCar(def, isPlayer) {
   const v = buildCar(def);
+  if (isPlayer && TH.night) { // headlights on the night track
+    const sl = new THREE.SpotLight('#fff1d0', 90, 70, 0.42, 0.55, 1.1); sl.position.set(0, 1.1, 2.4); sl.target.position.set(0, 0, 24); v.g.add(sl, sl.target);
+  }
   return {
     def, v, isPlayer,
     x: 0, z: 0, h: 0, va: 0, speed: 0, steer: 0, idx: 0, s: 0, d: 0,
@@ -702,7 +832,7 @@ function makeCar(def, isPlayer) {
 function setupRace() {
   cars.forEach((c) => scene.remove(c.v.g));
   cars = [];
-  player = makeCar(CAR_DEFS[carChoice], true);
+  player = makeCar(playerDef(), true);
   const bots = BOT_DEFS.slice().sort(() => R() - 0.5).slice(0, 5);
   const grid = [...bots.map((b) => makeCar(b, false)), player]; // player starts last-ish
 
@@ -719,6 +849,11 @@ function setupRace() {
     placeCarMesh(c, 0);
   });
   raceT = 0; finishT = 0;
+  // ghost: a friend's challenge wins over the player's own record
+  if (ghost) { scene.remove(ghost.v.g); ghost = null; }
+  const src = challenge && challenge.track === TRACK_ID ? challenge : ghostOn && ownGhost() ? { ...ownGhost(), name: 'Rekordingiz' } : null;
+  if (src) { const d = String(src.d || src.data).split(',').map(Number); if (d.length >= 40) { ghost = { d, name: src.name, time: src.t || src.time, vs: src === challenge, v: ghostMesh(src === challenge ? '#b98cff' : '#7ff3ff') }; ghost.v.g.visible = false; } }
+  rec = []; recT = 0;
 }
 
 function placeCarMesh(c, dt) {
@@ -869,14 +1004,15 @@ function botControl(c, dt) {
   // corner speed
   const ai = (c.idx + Math.round((20 + sp * 0.9) / STEP)) % N;
   const ang = Math.abs(wrapA(Math.atan2(TX[ai], TZ[ai]) - Math.atan2(TX[c.idx], TZ[c.idx])));
-  let target = MAXV * c.skill * (1 - clamp(ang / 1.4, 0, 1) * 0.42);
-  // rubber band relative to player
-  const gap = player.prog - c.prog, D = DIFF[diff];
-  target *= 1 + clamp(gap / 220, -D.band, D.band * 1.4);
+  const D = DIFF[diff];
+  let target = MAXV * c.skill * (1 - clamp(ang / 1.4, 0, 1) * (c.isPlayer && window.__pc ? window.__pc : D.corner)); // __pc: test autopilot cornering
+  // rubber band relative to player: bots behind the player push harder
+  const gap = player.prog - c.prog;
+  target *= 1 + clamp(gap / 200, -D.band * 0.7, D.band * 1.8);
   if (c.speed > target + 4) ctl.brake = true; if (c.speed > target) ctl.gas = false;
   // AI nitro on straights
   c.nitroAI -= dt;
-  if (ang < 0.15 && c.nitro > 0.6 && c.nitroAI <= 0 && state === 'race') { c.nitroAI = 1.6; }
+  if (ang < 0.18 && c.nitro > (diff === 2 ? 0.45 : 0.6) && c.nitroAI <= 0 && state === 'race') { c.nitroAI = 1.6; }
   ctl.nitro = c.nitroAI > 0 && c.nitro > 0.05;
   return ctl;
 }
@@ -939,8 +1075,6 @@ function drawSpeedFx(dt, amt) {
 
 // ---------------------------------------------------------------- HUD
 const mini = $('mini'), mc = mini.getContext('2d');
-let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-for (let i = 0; i < N; i++) { minX = Math.min(minX, PX[i]); maxX = Math.max(maxX, PX[i]); minZ = Math.min(minZ, PZ[i]); maxZ = Math.max(maxZ, PZ[i]); }
 const mScale = 196 / Math.max(maxX - minX, maxZ - minZ);
 const mOx = (236 - (maxX - minX) * mScale) / 2, mOz = (236 - (maxZ - minZ) * mScale) / 2;
 const mapX = (x) => 236 - (mOx + (x - minX) * mScale), mapZ = (z) => 236 - (mOz + (z - minZ) * mScale);
@@ -999,6 +1133,12 @@ function updateHud(dt) {
   const nb = $('nitroBtn'); nb.querySelector('.fill').style.height = (player.nitro * 100).toFixed(0) + '%';
   nb.classList.toggle('empty', player.nitro < 0.05); nb.classList.toggle('on', player.nitroOn);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
+  const gb = $('ghostBox');
+  if (ghost && ghost.at && state === 'race' && hudAcc === 0) { // seconds ahead (+ ghost leads) estimated from the gap in metres
+    const sec = (ghost.at.end ? player.prog - ghost.d[ghost.d.length - 1] : ghost.at.prog - player.prog) / Math.max(Math.abs(player.speed), 22) * (ghost.at.end ? -1 : 1);
+    gb.classList.remove('hide'); gb.querySelector('small').textContent = '👻 ' + ghost.name; const b = gb.querySelector('b');
+    b.textContent = (sec > 0 ? '+' : '−') + Math.abs(sec).toFixed(1) + ' s'; b.className = sec > 0 ? 'bad' : 'good';
+  } else if (!ghost || state !== 'race') gb.classList.add('hide');
 }
 
 function onLap(c) {
@@ -1019,13 +1159,55 @@ function showMenu() {
   state = 'menu';
   $('menu').classList.remove('hide'); $('hud').classList.add('hide'); $('touch').classList.add('hide'); $('result').classList.add('hide'); $('pause').classList.add('hide');
   setupRace();
-  renderBest();
+  renderBest(); renderCarRow(); renderTracks(); renderVs();
+  $('garagePanel').classList.add('hide'); $('mainPanel').classList.remove('hide');
   Music.play();
   if (TG && TG.BackButton) { try { TG.BackButton.hide(); } catch (e) {} }
 }
 function renderBest() {
-  const b = store.get('best' + diff, null);
-  $('bestTxt').textContent = b ? `Rekordingiz (${DIFF[diff].name}): ${fmtT(b.t)} · ${b.p}-o'rin` : '';
+  const b = store.get(bestKey(diff), null);
+  $('bestTxt').textContent = b ? `Rekordingiz (${TH.name}, ${DIFF[diff].name}): ${fmtT(b.t)} · ${b.p}-o'rin` : '';
+}
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function paintResultDaily() {
+  const e = $('rDaily'), b = lastRace && lastRace.daily;
+  if (!lastRace || lastRace.track !== dailyTrack()) { e.classList.add('hide'); return; }
+  e.classList.remove('hide');
+  e.innerHTML = b && b.me ? `📅 Kunlik reyting: <b>${b.me.rank}-o'rin</b> (${b.total} kishidan) · eng yaxshi vaqtingiz ${fmtT(b.me.time)} <u>Ko'rish ›</u>`
+    : lastRace.sent === 'wait' ? `📅 Vaqtingiz kunlik reytingga yuborilmoqda…` : `📅 Bugungi trassa reytingi <u>Ko'rish ›</u>`;
+}
+function renderDaily() { // menu line + board sheet
+  const dt = dailyTrack(), b = daily;
+  const me = b && b.me ? ` · siz ${b.me.rank}-o'rindasiz` : '', lead = b && b.top && b.top[0] ? `Yetakchi: ${esc(b.top[0].name)} ${fmtT(b.top[0].time)}` : 'Hali hech kim poyga qilmadi';
+  $('boardBtn').innerHTML = `📅 Kunlik reyting`;
+  $('dailyLine').innerHTML = `<b>Bugungi trassa: ${TRACKS[dt].icon} ${TRACKS[dt].name}</b><span>${lead}${me}</span>`;
+  const rows = $('bRows');
+  if (!b) { rows.innerHTML = '<div class="empty">Reyting yuklanmadi. Internetni tekshiring.</div>'; return; }
+  $('bTitle').textContent = `${TRACKS[dt].icon} ${TRACKS[dt].name}`;
+  rows.innerHTML = b.top.length ? b.top.map((r, k) => `<div class="row${r.me ? ' me' : ''}"><span class="medal">${k < 3 ? ['🥇', '🥈', '🥉'][k] : k + 1}</span><span>${esc(r.name)}${r.me ? ' (siz)' : ''}</span><span class="t">${fmtT(r.time)}</span></div>`).join('')
+    : '<div class="empty">Bugun hali hech kim poyga qilmadi. Birinchi bo\'ling!</div>';
+  if (b.me && !b.top.some((r) => r.me)) rows.innerHTML += `<div class="row me"><span class="medal">${b.me.rank}</span><span>Siz</span><span class="t">${fmtT(b.me.time)}</span></div>`;
+  $('bMine').textContent = b.total ? `Bugun ${b.total} kishi qatnashdi. Reyting har kuni 00:00 da yangilanadi.` : 'Reyting har kuni 00:00 da (Toshkent vaqti) yangilanadi.';
+  const go = $('bGo'); go.textContent = TRACK_ID === dt ? 'POYGANI BOSHLASH' : `${TRACKS[dt].name.toUpperCase()} TRASSASIGA O'TISH`;
+}
+function switchTrack(id, extra = '') {
+  if (id === TRACK_ID && !extra) return;
+  store.set('track', id); $('menu').classList.add('hide');
+  const l = document.createElement('div'); l.id = 'loading'; l.innerHTML = `<div style="font-family:Unbounded;font-weight:900;font-size:26px;color:#fff">${TRACKS[id].icon} ${TRACKS[id].name}</div><div class="bar"><i></i></div>`; document.body.appendChild(l);
+  setTimeout(() => location.replace(location.pathname + '?t=' + id + extra + location.hash), 60);
+}
+async function shareChallenge() {
+  if (!lastRace) return; const btn = $('rShare'); btn.disabled = true; btn.textContent = 'Tayyorlanmoqda…';
+  try {
+    const r = await fetch(API + '/ghost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client: clientId(), track: lastRace.track, time: lastRace.t, data: lastRace.data, name: tgName() }) });
+    const { id } = await r.json(); if (!id) throw 0;
+    const url = 'https://t.me/sezgiruz_bot?startapp=chaqmoq-' + id;
+    const text = `🏎 Chaqmoq, ${TH.name} trassasi: ${fmtT(lastRace.t)}. Vaqtimni urib ko'ra olasanmi?`;
+    if (TG && TG.openTelegramLink) TG.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(url) + '&text=' + encodeURIComponent(text));
+    else if (navigator.share) await navigator.share({ text, url }).catch(() => {});
+    else { await navigator.clipboard.writeText(text + ' ' + url); toast('Havola nusxalandi', 1.6); }
+  } catch (e) { toast('Havola yaratilmadi', 1.6); }
+  btn.disabled = false; btn.textContent = '👻 Do\'stni chaqirish';
 }
 function startRace() {
   Audio.init(); Audio.ctx && Audio.ctx.resume(); Music.stop();
@@ -1036,9 +1218,26 @@ function startRace() {
   $('hud').classList.remove('hide'); if (isTouch) $('touch').classList.remove('hide');
   if (TG && TG.BackButton) { try { TG.BackButton.show(); } catch (e) {} }
 }
+const API = 'https://sezgir-api.sezgir-uz.workers.dev';
+const tgName = () => { try { const u = TG && TG.initDataUnsafe && TG.initDataUnsafe.user; return u ? (u.first_name || '').slice(0, 24) : ''; } catch (e) { return ''; } };
+const clientId = () => (window.sezgirClient ? window.sezgirClient() : null);
+let lastRace = null, daily = null;
+async function loadDaily() {
+  try { const r = await fetch(API + '/race?client=' + (clientId() || '')); if (r.ok) daily = await r.json(); } catch (e) {}
+  renderDaily(); return daily;
+}
 function finishRace() {
   state = 'finish'; finishT = 0;
   const pos = standings().indexOf(player) + 1;
+  const t = +player.finishTime.toFixed(2), data = rec.join(',');
+  lastRace = { t, data, pos, track: TRACK_ID, vsWon: ghost && ghost.vs ? t < ghost.time : null, vsName: ghost && ghost.vs ? ghost.name : '', vsTime: ghost && ghost.vs ? ghost.time : 0 };
+  const og = ownGhost(); lastRace.newGhost = !og || t < og.t;
+  if (lastRace.newGhost) store.set('ghost:' + TRACK_ID, { t, d: data });
+  lastRace.daily = null; lastRace.sent = false;
+  if (TRACK_ID === dailyTrack() && !AUTO && clientId()) { lastRace.sent = 'wait'; // today's track: send the time to the shared board
+    fetch(API + '/race', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client: clientId(), track: TRACK_ID, time: t, name: tgName() }) })
+      .then((r) => (r.ok ? r.json() : null)).then((b) => { lastRace.sent = !!b; if (b) { daily = b; lastRace.daily = b; renderDaily(); } paintResultDaily(); }).catch(() => { lastRace.sent = false; paintResultDaily(); });
+  }
   window.gameStat && window.gameStat('chaqmoq', 'finish', { win: pos === 1, val: +player.finishTime.toFixed(2) });
   haptic('ok'); Audio.beep(660, 0.12, 'triangle', 0.2); setTimeout(() => Audio.beep(990, 0.3, 'triangle', 0.2), 130);
   toast(pos === 1 ? "G'ALABA!" : 'MARRA!', 2);
@@ -1049,16 +1248,26 @@ function showResult(pos) {
   const el = $('rPlace'); el.textContent = pos + '-o\'rin'; el.className = 'place ' + (pos === 1 ? '' : pos === 2 ? 'p2' : pos === 3 ? 'p3' : 'px');
   $('rSub').textContent = pos === 1 ? "Ajoyib! Chaqmoqdek tez bo'ldingiz 🏆" : pos <= 3 ? 'Zo\'r natija! Shohsupadasiz' : 'Yana bir urinish — albatta o\'tasiz!';
   $('rTime').textContent = fmtT(player.finishTime); $('rLap').textContent = fmtT(player.best);
-  const key = 'best' + diff, old = store.get(key, null);
+  const key = bestKey(diff), old = store.get(key, null);
   const better = !old || pos < old.p || (pos === old.p && player.finishTime < old.t);
   $('rBest').classList.toggle('hide', !better);
   if (better) store.set(key, { t: player.finishTime, p: pos });
   const hist = store.get('history', []);
-  hist.unshift({ d: Date.now(), diff, p: pos, t: +player.finishTime.toFixed(2), l: +player.best.toFixed(2), car: carChoice });
+  hist.unshift({ d: Date.now(), diff, p: pos, t: +player.finishTime.toFixed(2), l: +player.best.toFixed(2), car: carChoice, tr: TRACK_ID });
   store.set('history', hist.slice(0, 30));
   const tot = store.get('totals', { n: 0, w: 0, pod: 0, bl: null });
+  const before = tot.w || 0;
   tot.n++; if (pos === 1) tot.w++; if (pos <= 3) tot.pod++; if (!tot.bl || player.best < tot.bl) tot.bl = +player.best.toFixed(2);
   store.set('totals', tot);
+  // unlocks earned by this win
+  const got = [...CAR_DEFS.filter((c) => c.need > before && c.need <= tot.w).map((c) => c.name + ' mashinasi'), ...(PAINTS.some((p) => p.need > before && p.need <= tot.w) ? ['yangi rang'] : [])];
+  $('rUnlock').classList.toggle('hide', !got.length); if (got.length) $('rUnlock').innerHTML = `🎁 Ochildi: <b>${got.join(', ')}</b>. Garajda tanlang!`;
+  // friend's challenge
+  const vs = $('rVs'); vs.classList.toggle('hide', lastRace.vsWon === null);
+  if (lastRace.vsWon !== null) vs.innerHTML = lastRace.vsWon ? `👻 <b>${esc(lastRace.vsName)}</b>ning vaqtini yutdingiz! (${fmtT(lastRace.vsTime)})` : `👻 <b>${esc(lastRace.vsName)}</b> hali oldinda: ${fmtT(lastRace.vsTime)}. Yana urinib ko'ring!`;
+  vs.className = 'note ' + (lastRace.vsWon ? 'good' : 'bad') + (lastRace.vsWon === null ? ' hide' : '');
+  $('rGhost').classList.toggle('hide', !lastRace.newGhost || lastRace.vsWon !== null); 
+  paintResultDaily();
   const st = standings(); const rows = $('rRows'); rows.innerHTML = '';
   st.forEach((c, k) => {
     const r = document.createElement('div'); r.className = 'row' + (c.isPlayer ? ' me' : '');
@@ -1079,25 +1288,69 @@ function showStats() {
   const tot = store.get('totals', { n: 0, w: 0, pod: 0, bl: null });
   $('sTiles').innerHTML = [['Poyga', tot.n], ["G'alaba", tot.w], ['Shohsupa', tot.pod], ['Eng tez aylana', tot.bl ? fmtT(tot.bl) : '—']]
     .map(([a, b]) => `<div><b style="${String(b).length > 4 ? 'font-size:14px;line-height:1.7' : ''}">${b}</b><small>${a}</small></div>`).join('');
-  $('sBest').innerHTML = DIFF.map((d, i) => { const b = store.get('best' + i, null);
+  $('sBestT').textContent = 'Rekordlar · ' + TH.name;
+  $('sBest').innerHTML = DIFF.map((d, i) => { const b = store.get(bestKey(i), null);
     return `<div class="row"><span class="medal">${b ? (b.p === 1 ? '🥇' : b.p === 2 ? '🥈' : b.p === 3 ? '🥉' : '🏁') : '·'}</span><span>${d.name}</span><span class="t">${b ? b.p + "-o'rin · " + fmtT(b.t) : 'hali yo\'q'}</span></div>`; }).join('');
   const hist = store.get('history', []);
   $('sHist').innerHTML = hist.length ? hist.slice(0, 10).map((h) => { const dt = new Date(h.d);
     const pad = (n) => String(n).padStart(2, '0'); const when = pad(dt.getDate()) + '.' + pad(dt.getMonth() + 1) + ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
-    return `<div class="row${h.p === 1 ? ' me' : ''}"><span class="n">${h.p}</span><span class="d" style="background:${CAR_DEFS[h.car] ? CAR_DEFS[h.car].body : '#fff'}"></span><span>${DIFF[h.diff].name} <small style="color:var(--ink2);font-weight:500">· ${when}</small></span><span class="t">${fmtT(h.t)}</span></div>`; }).join('')
+    return `<div class="row${h.p === 1 ? ' me' : ''}"><span class="n">${h.p}</span><span class="d" style="background:${CAR_DEFS[h.car] ? CAR_DEFS[h.car].body : '#fff'}"></span><span>${(TRACKS[h.tr || 'samarqand'] || TH).icon} ${DIFF[h.diff].name} <small style="color:var(--ink2);font-weight:500">· ${when}</small></span><span class="t">${fmtT(h.t)}</span></div>`; }).join('')
     : '<div class="empty">Hali poyga yo\'q. Birinchi poygani boshlang!</div>';
   $('stats').classList.remove('hide');
 }
 
 // ---------------------------------------------------------------- menu ui
-{
-  const box = $('cars');
+const ball = (c) => `radial-gradient(circle at 35% 30%, #fff8 0, ${c} 45%, ${c})`;
+function renderCarRow() { const d = playerDef(); $('carBall').style.background = ball(d.body); $('carName').textContent = CAR_DEFS[carChoice].name; }
+function renderGarage() {
+  const w = wins(); $('winsTxt').textContent = `G'alabalar: ${w}`;
+  const box = $('cars'); box.innerHTML = '';
   CAR_DEFS.forEach((d, i) => {
-    const b = document.createElement('button'); b.className = 'car' + (i === carChoice ? ' on' : '');
-    b.innerHTML = `<i style="background:radial-gradient(circle at 35% 30%, #fff8 0, ${d.body} 45%, ${d.body})"></i><span>${d.name}</span>`;
-    b.onclick = () => { carChoice = i; store.set('car', i); [...box.children].forEach((c, k) => c.classList.toggle('on', k === i)); setupRace(); haptic('light'); };
+    const locked = d.need > w, b = document.createElement('button'); b.className = 'car' + (i === carChoice ? ' on' : '') + (locked ? ' locked' : '');
+    const pc = PAINTS[paintOf(i)].c || d.body;
+    b.innerHTML = `<i style="background:${ball(pc)}"></i><span>${d.name}</span>${locked ? `<em>🔒 ${d.need} g'alaba</em>` : ''}`;
+    b.onclick = () => { if (locked) { $('lockHint').textContent = `${d.name}: ${d.need} ta g'alabadan keyin ochiladi. Sizda ${w} ta.`; haptic('light'); return; }
+      carChoice = i; store.set('car', i); renderGarage(); renderCarRow(); setupRace(); haptic('light'); };
     box.appendChild(b);
   });
+  const pb = $('paints'); pb.innerHTML = ''; const cur = paintOf(carChoice);
+  PAINTS.forEach((p, k) => {
+    const locked = p.need > w, b = document.createElement('button'); b.className = 'paint' + (k === cur ? ' on' : '') + (locked ? ' locked' : '');
+    b.style.background = p.c ? ball(p.c) : `conic-gradient(${CAR_DEFS[carChoice].body} 0 50%, ${CAR_DEFS[carChoice].accent} 0)`; b.title = p.c ? '' : 'Asl rang';
+    if (locked) b.innerHTML = `<em>${p.need}</em>`;
+    b.onclick = () => { if (locked) { $('lockHint').textContent = `Bu rang ${p.need} ta g'alabadan keyin ochiladi. Sizda ${w} ta.`; haptic('light'); return; }
+      store.set('paint' + carChoice, k); renderGarage(); renderCarRow(); setupRace(); haptic('light'); };
+    pb.appendChild(b);
+  });
+}
+function renderTracks() {
+  const box = $('tracks'), dt = dailyTrack(); box.innerHTML = '';
+  TRACK_ORDER.forEach((id) => { const t = TRACKS[id], b = document.createElement('button'); b.className = 'trk' + (id === TRACK_ID ? ' on' : '');
+    b.innerHTML = `<i>${t.icon}</i><span>${t.name}</span>${id === dt ? '<em>BUGUN</em>' : ''}`; b.onclick = () => { haptic('light'); switchTrack(id); }; box.appendChild(b); });
+  const og = ownGhost(), gt = $('ghostTgl');
+  gt.classList.toggle('hide', !!(challenge && challenge.track === TRACK_ID));
+  gt.classList.toggle('on', ghostOn && !!og); gt.disabled = !og;
+  gt.textContent = og ? `👻 Rekord arvohi: ${ghostOn ? 'yoniq' : "o'chiq"}` : "👻 Arvoh: rekord yo'q";
+}
+function renderVs() {
+  const e = $('vsBanner'); $('dailyLine').classList.toggle('hide', !!challenge);
+  $('startBtn').textContent = challenge ? '👻 CHAQIRIQNI QABUL QILISH' : 'POYGANI BOSHLASH';
+  if (!challenge) { e.classList.add('hide'); return; }
+  e.classList.remove('hide');
+  e.innerHTML = `<div><b>👻 ${esc(challenge.name)} sizni chaqirdi!</b><span>${TRACKS[challenge.track].name} · vaqti ${fmtT(challenge.time)}. Uning arvohi bilan poyga qiling.</span></div><button id="vsX" aria-label="Bekor qilish">✕</button>`;
+  $('vsX').onclick = () => { challenge = null; history.replaceState(null, '', location.pathname + '?t=' + TRACK_ID + location.hash); renderVs(); renderTracks(); setupRace(); };
+}
+{
+  renderCarRow(); renderTracks();
+  $('garageBtn').onclick = () => { renderGarage(); $('lockHint').textContent = "Har g'alaba yangi mashina va ranglarni ochadi."; $('mainPanel').classList.add('hide'); $('garagePanel').classList.remove('hide'); haptic('light'); };
+  $('garageDone').onclick = () => { $('garagePanel').classList.add('hide'); $('mainPanel').classList.remove('hide'); renderCarRow(); };
+  $('ghostTgl').onclick = () => { ghostOn = !ghostOn; store.set('ghostOn', ghostOn); renderTracks(); haptic('light'); };
+  $('boardBtn').onclick = () => { renderDaily(); loadDaily(); $('board').classList.remove('hide'); haptic('light'); };
+  $('dailyLine').onclick = $('boardBtn').onclick;
+  $('bClose').onclick = () => $('board').classList.add('hide');
+  $('bGo').onclick = () => { const dt = dailyTrack(); if (dt !== TRACK_ID) switchTrack(dt); else { $('board').classList.add('hide'); startRace(); } };
+  $('rDaily').onclick = () => { renderDaily(); $('board').classList.remove('hide'); };
+  $('rShare').onclick = shareChallenge;
   [...$('diff').children].forEach((b) => {
     b.classList.toggle('on', +b.dataset.d === diff);
     b.onclick = () => { diff = +b.dataset.d; store.set('diff', diff); [...$('diff').children].forEach((c) => c.classList.toggle('on', c === b)); renderBest(); haptic('light'); };
@@ -1204,11 +1457,17 @@ function update(dt) {
           stepCar(c, h, ctl);
         }
         collideCars();
+        if (state === 'race' && !player.done) { recT += h; while (recT >= GHOST_DT || !rec.length) { if (rec.length) recT -= GHOST_DT; rec.push(Math.round(player.x * 10), Math.round(player.z * 10), Math.round(player.h * 100), Math.round(player.prog)); if (rec.length > 40000) break; } }
       }
     }
     if (state === 'count') { for (const c of cars) { c.steer = 0; } }
   }
   for (const c of cars) placeCarMesh(c, dt);
+  if (ghost) { // replay the ghost from the race clock; it fades once it has finished
+    const on = state === 'race' || state === 'finish', g = on ? sampleGhost(raceT) : null;
+    ghost.v.g.visible = !!g && !(g.end && state === 'finish');
+    if (g) { ghost.v.g.position.set(g.x, 0, g.z); ghost.v.g.rotation.y = g.h; ghost.at = g; for (const w of ghost.v.wheels) w.w.rotation.x += dt * 40; }
+  }
   if (state !== 'menu') {
     const p = player, boosting = p.boostT > 0 || p.nitroOn;
     Audio.engine(Math.abs(p.speed), MAXV, boosting, state !== 'menu');
@@ -1228,6 +1487,14 @@ function update(dt) {
 }
 
 showMenu();
-window.__t = { info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles }), update, startRace, get state() { return state; }, get player() { return player; }, get cars() { return cars; }, input };
+loadDaily();
+if (/^[a-z0-9]{6,12}$/.test(QS.get('vs') || '')) { // friend's "beat my time" link
+  fetch(API + '/ghost?id=' + QS.get('vs')).then((r) => (r.ok ? r.json() : null)).then((g) => {
+    if (!g || !TRACKS[g.track]) return;
+    if (g.track !== TRACK_ID) { switchTrack(g.track, '&vs=' + QS.get('vs')); return; }
+    challenge = g; renderVs(); renderTracks(); setupRace();
+  }).catch(() => {});
+}
+window.__t = { DIFF, setDiff: (d) => { diff = d; }, info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles }), update, startRace, get state() { return state; }, get player() { return player; }, get cars() { return cars; }, input };
 requestAnimationFrame(frame);
 setTimeout(() => { const l = $('loading'); l.style.opacity = 0; setTimeout(() => l.remove(), 500); }, 250);

@@ -156,6 +156,47 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
   #nitroBar{display:none}
 }
 .panel,.card{touch-action:pan-y}
+#mainPanel,#garagePanel{max-height:calc(100vh - 150px - var(--sat) - var(--sab));overflow-y:auto;overscroll-behavior:contain}
+.lblrow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lblrow .lbl{margin-bottom:8px}
+.tgl{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid var(--line);color:var(--ink2);margin-bottom:8px}
+.tgl.on{color:#bff6ff;border-color:rgba(127,243,255,.55);background:rgba(127,243,255,.12)}
+.tgl:disabled{opacity:.55}
+.tracks{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.trk{position:relative;border-radius:14px;padding:9px 2px 7px;background:rgba(255,255,255,.06);border:2px solid transparent;text-align:center}
+.trk.on{border-color:var(--acc);background:rgba(255,181,71,.14)}
+.trk i{display:block;font-style:normal;font-size:22px;line-height:1.1;margin-bottom:3px}
+.trk span{display:block;font-size:11.5px;font-weight:600;line-height:1.15}
+.trk em{position:absolute;top:-7px;left:50%;transform:translateX(-50%);font-style:normal;font-size:9px;font-weight:700;letter-spacing:.06em;background:var(--teal);color:#06302a;padding:1px 6px;border-radius:999px}
+.garageRow{width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:16px;background:rgba(255,255,255,.06);margin-bottom:14px;text-align:left}
+.garageRow i{width:34px;height:34px;border-radius:50%;flex:none;box-shadow:inset 0 -6px 10px rgba(0,0,0,.35),inset 0 5px 8px rgba(255,255,255,.45),0 4px 10px rgba(0,0,0,.3)}
+.garageRow span{flex:1;min-width:0}.garageRow b{display:block;font-size:15px}.garageRow small{display:block;font-size:12px;color:var(--ink2);font-weight:500}
+.garageRow em{font-style:normal;font-size:24px;color:var(--ink2)}
+.daily{width:100%;display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:16px;background:linear-gradient(90deg,rgba(63,224,197,.2),rgba(63,224,197,.06));border:1px solid rgba(63,224,197,.35);margin-bottom:12px;text-align:left}
+.daily b{font-size:14px}.daily span{font-size:12px;color:var(--ink2);font-weight:500}
+.vs{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:16px;background:rgba(185,140,255,.18);border:1px solid rgba(185,140,255,.5);margin-bottom:12px}
+.vs div{flex:1}.vs b{display:block;font-size:14px}.vs span{font-size:12px;color:var(--ink2)}
+.vs button{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);flex:none}
+.gh{display:flex;justify-content:space-between;align-items:baseline;margin:0 4px 12px}.gh b{font-family:Unbounded;font-size:20px}.gh span{font-size:13px;color:var(--ink2);font-weight:600}
+.car{position:relative}
+.car.locked{opacity:.55}.car.locked i{filter:grayscale(.7)}
+.car em{display:block;font-style:normal;font-size:10px;color:var(--ink2);margin-top:2px}
+.cars{grid-template-columns:repeat(4,1fr)}
+.paints{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:10px;padding:0 4px}
+.paint{aspect-ratio:1;border-radius:50%;border:3px solid transparent;box-shadow:inset 0 -5px 8px rgba(0,0,0,.3),inset 0 4px 6px rgba(255,255,255,.4);position:relative}
+.paint.on{border-color:#fff;outline:2px solid var(--acc)}
+.paint.locked{filter:grayscale(.8) brightness(.6)}
+.paint em{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:12px;font-weight:700}
+.paint em::before{content:'🔒';font-size:10px;margin-right:1px}
+.lockHint{min-height:18px;text-align:center;font-size:12.5px;color:var(--ink2);margin:2px 0 12px}
+.note{display:block;width:100%;text-align:center;font-size:13.5px;font-weight:600;padding:9px 12px;border-radius:14px;margin-bottom:10px;background:rgba(255,255,255,.07)}
+.note.good{background:rgba(63,224,197,.16)}.note.bad{background:rgba(255,95,109,.14)}.note.gold{background:rgba(255,209,102,.16)}
+.note.link u{color:var(--teal);text-decoration:none;margin-left:4px}
+.ghost.wide{width:100%;margin-bottom:10px;padding:12px}
+#rGhost{font-size:12.5px;color:var(--ink2);background:none;border:0;padding:0 0 4px;margin-bottom:6px}
+#ghostBox{position:absolute;left:12px;top:calc(76px + var(--sat))}
+#ghostBox b{font-size:16px}#ghostBox b.good{color:#7dffb0}#ghostBox b.bad{color:#ff8a94}
+@media (max-height:700px) and (orientation:portrait){.logo{margin-top:0}.logo h1{font-size:44px}.logo p{display:none}.howto{display:none}}
 .menuBtns{display:flex;gap:8px;margin-top:10px}
 .menuBtns .ghost{padding:12px;font-size:14px;border-radius:14px}
 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
@@ -166,6 +207,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .empty{text-align:center;color:var(--ink2);padding:14px;font-size:14px}
 .medal{font-size:15px;width:22px;text-align:center}
 @media (min-width:900px){#gauge{transform:translateX(-50%) scale(1.15);transform-origin:bottom center}}
+@media (max-height:520px) and (orientation:landscape){#mainPanel,#garagePanel{max-height:calc(100vh - 64px);margin-top:44px}#mainPanel .lbl,#mainPanel .lblrow,#mainPanel .daily,#mainPanel .best{display:none}.logo{max-width:250px;flex:none}.logo h1{font-size:34px!important}.logo p{font-size:10px;letter-spacing:.12em}.garageRow small{display:none}.menuBtns{margin-top:8px}.menuBtns .ghost{padding:9px}.daily{margin-bottom:8px;padding:7px 10px}.tracks{margin-bottom:10px}.trk{padding:6px 2px 5px}.trk i{font-size:18px}.garageRow{padding:7px 10px;margin-bottom:10px}}
 </style>
 </head>
 <body>
@@ -181,17 +223,30 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
     <button class="pill" id="soundBtn" aria-label="Ovoz">🔊</button>
   </div>
   <div class="logo"><h1>CHAQMOQ</h1><p>3D mashina poygasi · botlar bilan</p></div>
-  <div class="panel">
-    <div class="lbl">Mashinangiz</div>
-    <div class="cars" id="cars"></div>
+  <div class="panel" id="mainPanel">
+    <div class="vs hide" id="vsBanner"></div>
+    <button class="daily" id="dailyLine"></button>
+    <div class="lblrow"><div class="lbl">Trassa</div><button class="tgl" id="ghostTgl"></button></div>
+    <div class="tracks" id="tracks"></div>
+    <div class="lbl">Mashina</div>
+    <button class="garageRow" id="garageBtn"><i id="carBall"></i><span><b id="carName"></b><small>Garaj: mashina va rang tanlash</small></span><em>›</em></button>
     <div class="lbl">Raqiblar</div>
     <div class="seg" id="diff">
       <button data-d="0">Oson</button><button data-d="1" class="on">O'rta</button><button data-d="2">Qiyin</button>
     </div>
     <button class="go" id="startBtn">POYGANI BOSHLASH</button>
-    <div class="menuBtns"><button class="ghost" id="statsBtn">🏆 Natijalar</button></div>
+    <div class="menuBtns"><button class="ghost" id="boardBtn">📅 Kunlik reyting</button><button class="ghost" id="statsBtn">🏆 Natijalar</button></div>
     <div class="best" id="bestTxt"></div>
     <div class="howto" id="howto"></div>
+  </div>
+  <div class="panel hide" id="garagePanel">
+    <div class="gh"><b>Garaj</b><span id="winsTxt"></span></div>
+    <div class="lbl">Mashina</div>
+    <div class="cars" id="cars"></div>
+    <div class="lbl">Rang</div>
+    <div class="paints" id="paints"></div>
+    <div class="lockHint" id="lockHint"></div>
+    <button class="go" id="garageDone">TAYYOR</button>
   </div>
 </div>
 
@@ -202,6 +257,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
     <div class="box" id="lapBox"><small>Aylana</small><b>1<sup>/3</sup></b></div>
     <div class="box" id="timeBox"><small>Vaqt</small><b>0:00.0</b></div>
   </div>
+  <div class="box hide" id="ghostBox"><small>👻 Arvoh</small><b>+0.0 s</b></div>
   <button class="pill" id="pauseBtn" aria-label="Pauza">II</button>
   <canvas id="mini" width="236" height="236"></canvas>
   <div id="gauge"><canvas id="gc" width="340" height="208"></canvas><div id="spd">0<small>KM/SOAT</small></div></div>
@@ -236,7 +292,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
   <div class="card">
     <div class="place" style="font-size:34px;margin-bottom:12px">Natijalar</div>
     <div class="tiles" id="sTiles"></div>
-    <div class="h3">Rekordlar</div>
+    <div class="h3" id="sBestT">Rekordlar</div>
     <div class="rows" id="sBest"></div>
     <div class="h3">Oxirgi poygalar</div>
     <div class="rows" id="sHist"></div>
@@ -254,10 +310,30 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
       <div><small>Umumiy vaqt</small><b id="rTime">0:00.0</b></div>
       <div><small>Eng yaxshi aylana</small><b id="rLap">0:00.0</b></div>
     </div>
+    <div class="note hide" id="rVs"></div>
+    <div class="note gold hide" id="rUnlock"></div>
+    <button class="note link hide" id="rDaily"></button>
     <div class="rows" id="rRows"></div>
+    <button class="ghost wide hide" id="rGhost" disabled>👻 Bu trassada yangi rekord arvohingiz saqlandi</button>
+    <button class="ghost wide" id="rShare">👻 Do'stni chaqirish</button>
     <div class="btns">
       <button class="ghost" id="rMenu">Menyu</button>
       <button class="go" id="rAgain">YANA POYGA</button>
+    </div>
+  </div>
+</div>
+
+<!-- DAILY BOARD -->
+<div id="board" class="sheet hide">
+  <div class="card">
+    <div class="h3" style="text-align:center;margin-bottom:2px">📅 Kunlik poyga</div>
+    <div class="place" style="font-size:28px;margin-bottom:6px" id="bTitle"></div>
+    <div class="sub" style="font-size:13px;margin-bottom:12px">Bugun hamma bitta trassada poyga qiladi. Har bir o'yinchining eng tez vaqti hisoblanadi.</div>
+    <div class="rows" id="bRows"></div>
+    <div class="best" id="bMine" style="margin:-4px 0 12px"></div>
+    <div class="btns" style="flex-direction:column">
+      <button class="go" id="bGo">POYGANI BOSHLASH</button>
+      <button class="ghost" id="bClose">Yopish</button>
     </div>
   </div>
 </div>

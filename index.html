@@ -29,7 +29,8 @@ if (/tgWebApp/.test(location.hash) || window.TelegramWebviewProxy || (() => { tr
 (() => { try { const src = location.search + "&" + location.hash; let m = /[?#&]tgWebAppStartParam=([\w-]+)/.exec(src) || /[?&]startapp=([\w-]+)/.exec(location.search);
   if (!m) { const d = /[#&]tgWebAppData=([^&]*)/.exec(location.hash); if (d) m = /(?:^|&)start_param=([\w-]+)/.exec(decodeURIComponent(d[1])); }
   let p = m && m[1]; if (!p) { const w = window.Telegram && window.Telegram.WebApp; p = w && w.initDataUnsafe && w.initDataUnsafe.start_param; }
-  const go = { chaqmoq: "poyga/", poyga: "poyga/", pistirma: "pistirma/" }[p];
+  const vs = /^chaqmoq-([a-z0-9]{6,12})$/.exec(p || ""); /* "beat my time" link from a Chaqmoq race */
+  const go = vs ? "poyga/?vs=" + vs[1] : { chaqmoq: "poyga/", poyga: "poyga/", pistirma: "pistirma/" }[p];
   if (!go) return; /* once per Telegram launch (each launch signs new initData), so the game's back link still reaches home */
   const w = window.Telegram && window.Telegram.WebApp, d = /[#&]tgWebAppData=([^&]*)/.exec(location.hash);
   const id = p + ":" + ((d && decodeURIComponent(d[1])) || (w && w.initData) || "").slice(-80);

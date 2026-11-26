@@ -125,10 +125,10 @@ async function raceBoard(env, client) { // today's track: top 20 with names (Tel
   }
   return out;
 }
-async function raceChampion(env, gid, day) { // fastest group member on that day's track
+async function raceGroupTop(env, gid, day, n = 5) { // fastest group members on that day's track
   await raceTbl(env);
-  return env.DB.prepare(`SELECT u.name, MIN(r.time) AS time FROM race_best r LEFT JOIN aliases a ON a.alias = r.client JOIN tg_users u ON u.client = COALESCE(a.client, r.client)
-    JOIN tg_members m ON m.user_id = u.chat_id WHERE m.group_id = ? AND r.day = ? AND r.track = ? GROUP BY u.chat_id ORDER BY time LIMIT 1`).bind(gid, day, dailyTrack(day)).first();
+  return (await env.DB.prepare(`SELECT u.name, MIN(r.time) AS time FROM race_best r LEFT JOIN aliases a ON a.alias = r.client JOIN tg_users u ON u.client = COALESCE(a.client, r.client)
+    JOIN tg_members m ON m.user_id = u.chat_id WHERE m.group_id = ? AND r.day = ? AND r.track = ? GROUP BY u.chat_id ORDER BY time LIMIT ?`).bind(gid, day, dailyTrack(day), n).all()).results;
 }
 async function ghostSave(env, b) {
   const t = Number(b.time), data = String(b.data || "");
@@ -687,9 +687,7 @@ async function morningGroups(env) { // 09:00 Tashkent: short "new puzzle" note i
       ? `<b>☀️ Sezgir #${puzzleNo(day)} · hozirgi reyting</b>${news}\n\n${boardLines(b.played.slice(0, 10)).map(esc).join("\n")}${b.played.length > 10 ? `\n… yana ${b.played.length - 10} kishi` : ""}\n\n<b>${b.idle.length ? `Hali o'ynamaganlar: ${b.idle.length} kishi. Kim o'zib ketadi?` : "Hamma o'ynadi!"}</b>${yest ? `\n\n${yest}` : ""}`
       : `<b>☀️ Sezgir #${puzzleNo(day)} tayyor. Bugun kim birinchi bo'ladi?</b>${news}${yest ? `\n\n${yest}` : ""}`;
     const duel = `\n\n⚔️ <b>Guruhdoshingizni duelga chaqiring</b>: ikkalangizga bir xil, yangi jumboq beriladi.`;
-    const rc = await raceChampion(env, g.chat_id, yday).catch(() => null); // yesterday's fastest Chaqmoq racer in this group
-    const race = rc ? `\n\n🏎 Kechagi Chaqmoq chempioni: <b>${esc(rc.name || "O'yinchi")}</b> · ${fmtRace(rc.time)} (${RACE_TRACKS[dailyTrack(yday)]}). Bugungi trassa: <b>${RACE_TRACKS[dailyTrack(day)]}</b>` : "";
-    const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: text + race + duel, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", url: `https://t.me/${BOT_USER}?startapp=g${g.chat_id}` }],
+    const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: text + duel, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🎯 O'ynash", style: "success", url: `https://t.me/${BOT_USER}?startapp=g${g.chat_id}` }],
       [{ text: "⚔️ Duelga chaqirish", style: "primary", url: `https://t.me/${BOT_USER}?start=dg${g.chat_id}` }, { text: "🎮 Boshqa o'yinlar", url: `https://t.me/${BOT_USER}?start=games` }]] } });
     if (!r.ok && (r.error_code === 403 || r.error_code === 400)) await env.DB.prepare("UPDATE tg_groups SET active = 0 WHERE chat_id = ?").bind(g.chat_id).run();
     await new Promise(res => setTimeout(res, 40));
@@ -701,7 +699,11 @@ async function postBoards(env) { // 21:00 Tashkent: daily board; on Sunday also 
   for (const g of groups.results) {
     const b = await groupBoard(env, g.chat_id, day);
     const t = boardText(`Sezgir #${puzzleNo(day)} · kun yakuni`, day, b);
-    if (t) { const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: t + "\n\n<b>Ertaga 9:00 da yangi jumboq.</b>", parse_mode: "HTML", reply_markup: joinBtn(g.chat_id) }); if (!r.ok && (r.error_code === 403 || r.error_code === 400)) { await env.DB.prepare("UPDATE tg_groups SET active = 0 WHERE chat_id = ?").bind(g.chat_id).run(); continue; } }
+    const rt = await raceGroupTop(env, g.chat_id, day).catch(() => []); // Chaqmoq: today's track, same message
+    const race = rt.length ? `<b>🏎 Chaqmoq · ${RACE_TRACKS[dailyTrack(day)]}</b> (bugungi trassa)\n${rt.map((r, i) => `${MEDALS[i] || `${i + 1}.`} ${esc(r.name || "O'yinchi")}: ${fmtRace(r.time)}`).join("\n")}\n\nErtangi trassa: <b>${RACE_TRACKS[dailyTrack(shiftDay(day, 1))]}</b>` : "";
+    const text = [t, race].filter(Boolean).join("\n\n");
+    const kb = joinBtn(g.chat_id); if (race) kb.inline_keyboard.push([{ text: "🏎 Chaqmoq", url: `https://t.me/${BOT_USER}?startapp=chaqmoq` }]);
+    if (text) { const r = await tg(env, "sendMessage", { chat_id: g.chat_id, text: text + "\n\n<b>Ertaga 9:00 da yangi jumboq.</b>", parse_mode: "HTML", reply_markup: kb }); if (!r.ok && (r.error_code === 403 || r.error_code === 400)) { await env.DB.prepare("UPDATE tg_groups SET active = 0 WHERE chat_id = ?").bind(g.chat_id).run(); continue; } }
     if (sunday) {
       const from = shiftDay(day, -6);
       const w = await env.DB.prepare("SELECT u.name, SUM(p.total) AS sum, COUNT(*) AS days FROM tg_members m JOIN tg_users u ON u.chat_id = m.user_id JOIN plays p ON p.client = u.client AND p.date BETWEEN ? AND ? WHERE m.group_id = ? GROUP BY u.chat_id ORDER BY sum DESC LIMIT 5").bind(from, day, g.chat_id).all();
